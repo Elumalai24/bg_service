@@ -182,7 +182,7 @@ class DBHelper {
 
       await insertEvent(
         name: 'Morning Walk',
-        start: now.add(const Duration(minutes: 1)),
+        start: now.add(const Duration(milliseconds: 1)),
         end: now.add(const Duration(minutes: 2)),
       );
 

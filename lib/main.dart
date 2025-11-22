@@ -112,6 +112,9 @@ void onStart(ServiceInstance service) async {
   int? eventStartSteps;
   Map<String, dynamic>? activeEvent;
 
+  // used to detect event switching
+  int? lastEventId;
+
   Future<Map<String, dynamic>?> getActiveEvent() async {
     try {
       final now = DateTime.now().toIso8601String();
@@ -131,7 +134,9 @@ void onStart(ServiceInstance service) async {
       notifications.show(
         888,
         "Steps: $raw",
-        activeEvent != null ? "Event: ${activeEvent!['name']}" : "No active event",
+        activeEvent != null
+            ? "Event: ${activeEvent!['name']}"
+            : "No active event",
         const NotificationDetails(
           android: AndroidNotificationDetails(
             'my_foreground',
@@ -150,7 +155,7 @@ void onStart(ServiceInstance service) async {
   }
 
   // ---------------------------------------------------------------------------
-  // 🔥 STEP STREAM HANDLER
+  // 🔥 STEP STREAM LISTENER
   // ---------------------------------------------------------------------------
 
   StreamSubscription<StepCount>? pedSub;
@@ -159,7 +164,7 @@ void onStart(ServiceInstance service) async {
     final raw = event.steps;
 
     // ==============================================================
-    // 🔥 TOTAL STEPS FIX — PERSIST EVEN AFTER RESTART
+    // 🔥 TOTAL STEPS PERSISTENCE
     // ==============================================================
     if (lastRaw == -1) lastRaw = raw;
 
@@ -168,13 +173,12 @@ void onStart(ServiceInstance service) async {
 
     totalSteps += inc;
 
-    // Save total + last raw
     prefs.setInt("last_raw", raw);
     prefs.setInt("total_steps", totalSteps);
 
     lastRaw = raw;
 
-    // Send to UI
+    // send update to UI
     service.invoke("steps_update", {
       "raw_steps": raw,
       "total_steps": totalSteps,
@@ -183,11 +187,39 @@ void onStart(ServiceInstance service) async {
     await updateNotif(raw);
 
     // ==============================================================
-    // 🔥 EVENT CALCULATION LOGIC
+    // 🔥 EVENT SWITCHING LOGIC (Case B Fix)
     // ==============================================================
-    activeEvent ??= await getActiveEvent();
-    if (activeEvent == null) return;
+    final newEvent = await getActiveEvent();
 
+    if (newEvent == null) {
+      // No active event, reset everything
+      if (activeEvent != null) {
+        prefs.remove("event_start_steps_${activeEvent!['id']}");
+      }
+
+      activeEvent = null;
+      lastEventId = null;
+      eventStartSteps = null;
+      prefs.remove("last_step_count");
+
+      return;
+    }
+
+    if (lastEventId != newEvent['id']) {
+      print("🔄 EVENT CHANGED TO → ${newEvent['name']}");
+
+      // reset old event baseline
+      if (lastEventId != null) {
+        prefs.remove("event_start_steps_$lastEventId");
+      }
+
+      activeEvent = newEvent;
+      lastEventId = newEvent['id'];
+      eventStartSteps = null; // baseline will recalc
+      prefs.remove("last_step_count");
+    }
+
+    // Now process event steps
     final eventId = activeEvent!["id"];
 
     final prevStats =
@@ -215,11 +247,10 @@ void onStart(ServiceInstance service) async {
   });
 
   // ---------------------------------------------------------------------------
-  // Fallback periodic update
+  // fallback periodic UI update
   // ---------------------------------------------------------------------------
   Timer.periodic(const Duration(seconds: 1), (timer) async {
     final raw = prefs.getInt("last_raw") ?? 0;
-
     await updateNotif(raw);
 
     service.invoke("update", {
@@ -318,47 +349,6 @@ class _MyAppState extends State<MyApp> {
           ],
         ),
       ),
-    );
-  }
-}
-
-
-class LogView extends StatefulWidget {
-  const LogView({Key? key}) : super(key: key);
-
-  @override
-  State<LogView> createState() => _LogViewState();
-}
-
-class _LogViewState extends State<LogView> {
-  late final Timer timer;
-  List<String> logs = [];
-
-  @override
-  void initState() {
-    super.initState();
-    timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      final SharedPreferences sp = await SharedPreferences.getInstance();
-      await sp.reload();
-      logs = sp.getStringList('log') ?? [];
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    timer.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      itemCount: logs.length,
-      itemBuilder: (context, index) {
-        final log = logs.elementAt(index);
-        return Text(log);
-      },
     );
   }
 }
