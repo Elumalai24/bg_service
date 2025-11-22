@@ -15,12 +15,12 @@ import 'events_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   // request all important permissions
   final ok = await PermissionsService.requestAllPermissions();
 
-  if (!ok) {
-    print("⚠ Required permissions NOT granted!");
-  }
+  if (!ok) print("⚠ Required permissions NOT granted!");
+
   await DBHelper.instance.init();
   await DBHelper.instance.insertMockEventsIfEmpty();
 
@@ -49,7 +49,6 @@ Future<void> initializeService() async {
     ),
   );
 
-  // Create notification channel (Android)
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
       AndroidFlutterLocalNotificationsPlugin>()
@@ -74,6 +73,8 @@ Future<void> initializeService() async {
   );
 }
 
+// ---------------------------------------------------------------------------
+
 @pragma('vm:entry-point')
 Future<bool> onIosBackground(ServiceInstance service) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -87,11 +88,14 @@ Future<bool> onIosBackground(ServiceInstance service) async {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// 🔥 BACKGROUND SERVICE (Android + iOS foreground)
+// ---------------------------------------------------------------------------
+
 @pragma('vm:entry-point')
 void onStart(ServiceInstance service) async {
   DartPluginRegistrant.ensureInitialized();
 
-  // Init DB inside isolate
   await DBHelper.instance.init();
 
   final FlutterLocalNotificationsPlugin notifications =
@@ -99,38 +103,35 @@ void onStart(ServiceInstance service) async {
 
   final prefs = await SharedPreferences.getInstance();
 
-  int? eventStartSteps;
-  Map<String, dynamic>? activeEvent;
-
-  // ============================================================
-  // 🔥 TOTAL STEPS VARIABLES
-  // ============================================================
+  // ==============================================================
+  // 🔥 TOTAL STEP VARIABLES (Restored on service start)
+  // ==============================================================
   int lastRaw = prefs.getInt("last_raw") ?? -1;
   int totalSteps = prefs.getInt("total_steps") ?? 0;
+
+  int? eventStartSteps;
+  Map<String, dynamic>? activeEvent;
 
   Future<Map<String, dynamic>?> getActiveEvent() async {
     try {
       final now = DateTime.now().toIso8601String();
       final events = await DBHelper.instance.getEvents();
-
       for (var e in events) {
         if (now.compareTo(e['startDateTime']) >= 0 &&
             now.compareTo(e['endDateTime']) <= 0) {
           return e;
         }
       }
-    } catch (e) {
-      print("[BG] ActiveEvent lookup failed: $e");
-    }
+    } catch (e) {}
     return null;
   }
 
-  Future<void> updateNotif(int steps) async {
+  Future<void> updateNotif(int raw) async {
     if (service is AndroidServiceInstance) {
       notifications.show(
         888,
-        "Steps: $steps",
-        activeEvent != null ? "Event: ${activeEvent!["name"]}" : "No active event",
+        "Steps: $raw",
+        activeEvent != null ? "Event: ${activeEvent!['name']}" : "No active event",
         const NotificationDetails(
           android: AndroidNotificationDetails(
             'my_foreground',
@@ -142,91 +143,83 @@ void onStart(ServiceInstance service) async {
       );
 
       service.setForegroundNotificationInfo(
-        title: "Steps: $steps",
+        title: "Steps: $raw",
         content: activeEvent != null ? activeEvent!["name"] : "No active event",
       );
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 🔥 STEP STREAM HANDLER
+  // ---------------------------------------------------------------------------
+
   StreamSubscription<StepCount>? pedSub;
-  StreamSubscription<PedestrianStatus>? pedStatusSub;
 
-  try {
-    pedStatusSub = Pedometer.pedestrianStatusStream.listen((status) {
-      prefs.setString("ped_status", status.status);
+  pedSub = Pedometer.stepCountStream.listen((StepCount event) async {
+    final raw = event.steps;
+
+    // ==============================================================
+    // 🔥 TOTAL STEPS FIX — PERSIST EVEN AFTER RESTART
+    // ==============================================================
+    if (lastRaw == -1) lastRaw = raw;
+
+    int inc = raw - lastRaw;
+    if (inc < 0) inc = 0;
+
+    totalSteps += inc;
+
+    // Save total + last raw
+    prefs.setInt("last_raw", raw);
+    prefs.setInt("total_steps", totalSteps);
+
+    lastRaw = raw;
+
+    // Send to UI
+    service.invoke("steps_update", {
+      "raw_steps": raw,
+      "total_steps": totalSteps,
     });
 
-    pedSub = Pedometer.stepCountStream.listen((StepCount event) async {
-      final raw = event.steps;
+    await updateNotif(raw);
 
-      // ============================================================
-      // 🔥 TOTAL STEPS FIX
-      // ============================================================
-      if (lastRaw == -1) {
-        lastRaw = raw;
+    // ==============================================================
+    // 🔥 EVENT CALCULATION LOGIC
+    // ==============================================================
+    activeEvent ??= await getActiveEvent();
+    if (activeEvent == null) return;
+
+    final eventId = activeEvent!["id"];
+
+    final prevStats =
+    await DBHelper.instance.getEventStats("user1", eventId);
+
+    if (eventStartSteps == null) {
+      if (prevStats != null) {
+        eventStartSteps = raw - (prevStats['steps'] as num).toInt();
+      } else {
+        eventStartSteps = raw;
       }
+      prefs.setInt("event_start_steps_$eventId", eventStartSteps!);
+    }
 
-      int inc = raw - lastRaw;
-      if (inc < 0) inc = 0;
+    int eventSteps = raw - eventStartSteps!;
+    if (eventSteps < 0) eventSteps = 0;
 
-      totalSteps += inc;
+    await DBHelper.instance.updateEventStatsAbsolute(
+      userId: "user1",
+      eventId: eventId,
+      steps: eventSteps,
+      distance: eventSteps * 0.8,
+      calories: eventSteps * 0.04,
+    );
+  });
 
-      // save to prefs
-      prefs.setInt("last_raw", raw);
-      prefs.setInt("total_steps", totalSteps);
-
-      lastRaw = raw;
-
-      // send to UI
-      service.invoke("steps_update", {
-        "raw_steps": raw,
-        "total_steps": totalSteps,
-      });
-
-      // Update notification
-      await updateNotif(raw);
-
-      // ============================================================
-      // EVENT LOGIC
-      // ============================================================
-      activeEvent ??= await getActiveEvent();
-      if (activeEvent == null) return;
-
-      int eventId = activeEvent!["id"];
-
-      final prevStats =
-      await DBHelper.instance.getEventStats("user1", eventId);
-
-      if (eventStartSteps == null) {
-        if (prevStats != null) {
-          eventStartSteps = raw - (prevStats['steps'] as int);
-        } else {
-          eventStartSteps = raw;
-        }
-        prefs.setInt("event_start_steps_$eventId", eventStartSteps!);
-      }
-
-      int eventSteps = raw - eventStartSteps!;
-      if (eventSteps < 0) eventSteps = 0;
-
-      double dist = eventSteps * 0.8;
-      double cal = eventSteps * 0.04;
-
-      await DBHelper.instance.updateEventStatsAbsolute(
-        userId: "user1",
-        eventId: eventId,
-        steps: eventSteps,
-        distance: dist,
-        calories: cal,
-      );
-    });
-  } catch (e) {
-    print("[BG] Pedometer stream error: $e");
-  }
-
-  // periodic UI update & event refresh
+  // ---------------------------------------------------------------------------
+  // Fallback periodic update
+  // ---------------------------------------------------------------------------
   Timer.periodic(const Duration(seconds: 1), (timer) async {
-    int raw = prefs.getInt("current_steps_snapshot") ?? 0;
+    final raw = prefs.getInt("last_raw") ?? 0;
+
     await updateNotif(raw);
 
     service.invoke("update", {
@@ -238,14 +231,13 @@ void onStart(ServiceInstance service) async {
 
   service.on('stopService').listen((event) async {
     await pedSub?.cancel();
-    await pedStatusSub?.cancel();
     service.stopSelf();
   });
 }
 
-// ===================================================================
-// ✅ UPDATED HOME SCREEN — SHOWS TOTAL STEPS + RAW STEPS + EVENT
-// ===================================================================
+// ---------------------------------------------------------------------------
+// UI — HOME SCREEN
+// ---------------------------------------------------------------------------
 
 class MyApp extends StatefulWidget {
   const MyApp({Key? key}) : super(key: key);
@@ -262,7 +254,16 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    _loadSavedTotals();
     listenUpdates();
+  }
+
+  Future<void> _loadSavedTotals() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      totalSteps = (prefs.getInt("total_steps") ?? 0).toString();
+      rawSteps = (prefs.getInt("last_raw") ?? 0).toString();
+    });
   }
 
   void listenUpdates() {
@@ -295,12 +296,13 @@ class _MyAppState extends State<MyApp> {
             SizedBox(height: 20),
 
             Text("TOTAL Steps", style: TextStyle(fontSize: 22)),
-            Text(totalSteps, style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold)),
+            Text(totalSteps,
+                style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold)),
             SizedBox(height: 30),
 
             Text("Active Event", style: TextStyle(fontSize: 22)),
-            Text(eventName, style: TextStyle(fontSize: 28, color: Colors.blue)),
-
+            Text(eventName,
+                style: TextStyle(fontSize: 28, color: Colors.blue)),
             SizedBox(height: 40),
 
             ElevatedButton(
@@ -308,7 +310,8 @@ class _MyAppState extends State<MyApp> {
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const EventsListScreen()),
+                  MaterialPageRoute(
+                      builder: (_) => const EventsListScreen()),
                 );
               },
             ),
