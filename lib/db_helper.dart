@@ -1,4 +1,5 @@
-// lib/db/db_helper.dart
+// lib/db_helper.dart
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -13,7 +14,9 @@ class DBHelper {
 
   Database? _db;
 
-  /// Initialize the database (should be called once in main)
+  /// ----------------------------------------------------------------------
+  /// INITIALIZE DB
+  /// ----------------------------------------------------------------------
   Future<void> init() async {
     if (_db != null) return;
 
@@ -29,7 +32,9 @@ class DBHelper {
     );
   }
 
-  /// Database schema creation
+  /// ----------------------------------------------------------------------
+  /// SCHEMA
+  /// ----------------------------------------------------------------------
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE events(
@@ -53,9 +58,28 @@ class DBHelper {
     ''');
   }
 
-  // -----------------------------
-  // EVENTS TABLE
-  // -----------------------------
+  Database _ensureDb() {
+    if (_db == null) {
+      throw Exception("DB not initialized. Call DBHelper.instance.init()");
+    }
+    return _db!;
+  }
+
+  Future<void> close() async {
+    if (_db != null && _db!.isOpen) {
+      await _db!.close();
+      _db = null;
+    }
+  }
+
+  /// ----------------------------------------------------------------------
+  /// EVENTS — Only 2 events permanently
+  /// ----------------------------------------------------------------------
+
+  Future<List<Map<String, dynamic>>> getEvents() async {
+    final db = _ensureDb();
+    return db.query('events', orderBy: "id ASC");
+  }
 
   Future<int> insertEvent({
     required String name,
@@ -63,34 +87,50 @@ class DBHelper {
     required DateTime end,
   }) async {
     final db = _ensureDb();
-    return await db.insert('events', {
+    return db.insert('events', {
       'name': name,
       'startDateTime': start.toIso8601String(),
       'endDateTime': end.toIso8601String(),
     });
   }
 
-  Future<List<Map<String, dynamic>>> getEvents() async {
+  /// 🔥 ONLY create 2 events: morning + evening
+  Future<void> insertMockEventsIfEmpty() async {
     final db = _ensureDb();
-    return await db.query('events', orderBy: 'startDateTime ASC');
-  }
 
-  Future<Map<String, dynamic>?> getEventById(int id) async {
-    final db = _ensureDb();
-    final rows = await db.query(
-      'events',
-      where: 'id = ?',
-      whereArgs: [id],
-      limit: 1,
+    final cnt = Sqflite.firstIntValue(
+      await db.rawQuery("SELECT COUNT(*) FROM events"),
+    ) ??
+        0;
+
+    if (cnt > 0) return;
+
+    // Create ANY day — time portion only is important
+    final today = DateTime.now();
+
+    // Morning
+    await insertEvent(
+      name: "Morning Event",
+      start: DateTime(today.year, today.month, today.day, 10, 0),
+      end: DateTime(today.year, today.month, today.day, 10, 5),
     );
-    return rows.isNotEmpty ? rows.first : null;
+
+    // Evening
+    await insertEvent(
+      name: "Evening Event",
+      start: DateTime(today.year, today.month, today.day, 18, 0),
+      end: DateTime(today.year, today.month, today.day, 18, 5),
+    );
+
+    print("✔ Inserted 2 permanent events.");
   }
 
-  // -----------------------------
-  // EVENT_STATS TABLE
-  // -----------------------------
+  /// ----------------------------------------------------------------------
+  /// ACCUMULATIVE EVENT STATS
+  /// ----------------------------------------------------------------------
 
-  Future<void> updateEventStatsAbsolute({
+  /// Adds +steps (delta), not overwriting
+  Future<void> updateEventStatsAccumulate({
     required String userId,
     required int eventId,
     required int steps,
@@ -99,45 +139,65 @@ class DBHelper {
   }) async {
     final db = _ensureDb();
 
-    final updated = await db.update(
-      'event_stats',
-      {
-        'steps': steps,
-        'distance': distance,
-        'calories': calories,
-      },
-      where: 'userId = ? AND eventId = ?',
+    // Get existing record
+    final exists = await db.query(
+      "event_stats",
+      where: "userId = ? AND eventId = ?",
       whereArgs: [userId, eventId],
+      limit: 1,
     );
 
-    if (updated == 0) {
-      await db.insert('event_stats', {
-        'userId': userId,
-        'eventId': eventId,
-        'steps': steps,
-        'distance': distance,
-        'calories': calories,
+    if (exists.isNotEmpty) {
+      final prev = exists.first;
+
+      final newSteps = (prev['steps'] as int) + steps;
+      final newDist = _safeDouble(prev['distance']) + distance;
+      final newCal = _safeDouble(prev['calories']) + calories;
+
+      await db.update(
+        "event_stats",
+        {
+          "steps": newSteps,
+          "distance": newDist,
+          "calories": newCal,
+        },
+        where: "userId = ? AND eventId = ?",
+        whereArgs: [userId, eventId],
+      );
+    } else {
+      // Insert fresh
+      await db.insert("event_stats", {
+        "userId": userId,
+        "eventId": eventId,
+        "steps": steps,
+        "distance": distance,
+        "calories": calories,
       });
     }
   }
 
+  /// Get stats for one event
   Future<Map<String, dynamic>?> getEventStats(String userId, int eventId) async {
     final db = _ensureDb();
     final rows = await db.query(
-      'event_stats',
-      where: 'userId = ? AND eventId = ?',
+      "event_stats",
+      where: "userId = ? AND eventId = ?",
       whereArgs: [userId, eventId],
       limit: 1,
     );
     return rows.isNotEmpty ? rows.first : null;
   }
 
-  Future<List<Map<String, dynamic>>> getAllEventStats() async {
+  /// Get ALL stats for user
+  Future<List<Map<String, dynamic>>> getAllEventStats(String userId) async {
     final db = _ensureDb();
-    return await db.query('event_stats');
+    return db.query(
+      "event_stats",
+      where: "userId = ?",
+    );
   }
 
-  /// Aggregate all stats across all events
+  /// TOTAL (sum of both events)
   Future<Map<String, dynamic>> getTotalStats(String userId) async {
     final db = _ensureDb();
     final rows = await db.rawQuery('''
@@ -149,70 +209,22 @@ class DBHelper {
       WHERE userId = ?
     ''', [userId]);
 
-    final first = rows.first;
+    final r = rows.first;
 
     return {
-      'steps': first['steps'] ?? 0,
-      'distance': _safeDouble(first['distance']),
-      'calories': _safeDouble(first['calories']),
+      "steps": r["steps"] ?? 0,
+      "distance": _safeDouble(r["distance"]),
+      "calories": _safeDouble(r["calories"]),
     };
   }
 
-  double _safeDouble(dynamic value) {
-    if (value == null) return 0.0;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    return double.tryParse(value.toString()) ?? 0.0;
-  }
-
-  // -----------------------------
-  // DEBUG / MOCK DATA
-  // -----------------------------
-
-  Future<void> insertMockEventsIfEmpty() async {
-    final db = _ensureDb();
-
-    final count = Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM events'),
-    ) ??
-        0;
-
-    if (count == 0) {
-      final now = DateTime.now();
-
-      await insertEvent(
-        name: 'Morning Walk',
-        start: now.add(const Duration(milliseconds: 1)),
-        end: now.add(const Duration(minutes: 2)),
-      );
-
-      await insertEvent(
-        name: 'Evening Walk',
-        start: now.add(const Duration(minutes: 3)),
-        end: now.add(const Duration(minutes: 40)),
-      );
-
-      print("Mock events inserted ✔");
-    }
-  }
-
-  // -----------------------------
-  // INTERNAL UTILS
-  // -----------------------------
-
-  Database _ensureDb() {
-    if (_db == null) {
-      throw Exception(
-        'Database not initialized. Call DBHelper.instance.init() before using.',
-      );
-    }
-    return _db!;
-  }
-
-  Future<void> close() async {
-    if (_db != null && _db!.isOpen) {
-      await _db!.close();
-      _db = null;
-    }
+  /// ----------------------------------------------------------------------
+  /// SAFE TYPE CONVERSION
+  /// ----------------------------------------------------------------------
+  double _safeDouble(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is int) return v.toDouble();
+    if (v is double) return v;
+    return double.tryParse(v.toString()) ?? 0.0;
   }
 }

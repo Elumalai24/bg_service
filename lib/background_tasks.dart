@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
-
 import 'package:flutter/widgets.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_background_service_android/flutter_background_service_android.dart';
@@ -17,21 +16,22 @@ class BackgroundService {
   BackgroundService._();
   static final BackgroundService instance = BackgroundService._();
 
-  /// Call from main.dart before runApp()
-  static Future<void> initializeService() async {
+  /// ---------------------------------------------------------------
+  /// INITIALIZE SERVICE
+  /// ---------------------------------------------------------------
+  static Future<void> initialize() async {
     final service = FlutterBackgroundService();
 
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
       'my_foreground',
-      'My Foreground Service',
-      description: 'Used for pedometer tracking',
+      'MY FOREGROUND SERVICE',
+      description: 'Shows step counter & event status',
       importance: Importance.low,
     );
 
     final FlutterLocalNotificationsPlugin notifications =
     FlutterLocalNotificationsPlugin();
 
-    // Initialize notification plugin (needed for foreground mode)
     await notifications.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('ic_bg_service_small'),
@@ -39,7 +39,6 @@ class BackgroundService {
       ),
     );
 
-    // Create Android channel
     await notifications
         .resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>()
@@ -47,220 +46,256 @@ class BackgroundService {
 
     await service.configure(
       androidConfiguration: AndroidConfiguration(
-        onStart: _onStart,
+        onStart: onStart,
         autoStart: true,
         isForegroundMode: true,
         notificationChannelId: 'my_foreground',
-        initialNotificationTitle: 'Pedometer Service',
-        initialNotificationContent: 'Starting...',
+        initialNotificationTitle: "Starting…",
+        initialNotificationContent: "Initializing",
         foregroundServiceNotificationId: 888,
         foregroundServiceTypes: [AndroidForegroundType.location],
       ),
       iosConfiguration: IosConfiguration(
+        onForeground: onStart,
+        onBackground: onIosBackground,
         autoStart: true,
-        onForeground: _onStart,
-        onBackground: _onIosBackground,
       ),
     );
   }
 
-  // iOS background handler
+  /// ---------------------------------------------------------------
+  /// iOS BACKGROUND
+  /// ---------------------------------------------------------------
   @pragma('vm:entry-point')
-  static Future<bool> _onIosBackground(ServiceInstance service) async {
+  static Future<bool> onIosBackground(ServiceInstance service) async {
     WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
 
     final prefs = await SharedPreferences.getInstance();
-    List<String> logs = prefs.getStringList("log") ?? [];
-    logs.add("iOS BG: ${DateTime.now()}");
-    await prefs.setStringList("log", logs);
-
+    List<String> logs = prefs.getStringList("ios_log") ?? [];
+    logs.add("iOS BG Triggered: ${DateTime.now()}");
+    await prefs.setStringList("ios_log", logs);
     return true;
   }
 
-  // ANDROID / iOS FOREGROUND BACKGROUND SERVICE ENTRY
+  /// ---------------------------------------------------------------
+  /// ANDROID BACKGROUND ENTRYPOINT
+  /// ---------------------------------------------------------------
   @pragma('vm:entry-point')
-  static void _onStart(ServiceInstance service) async {
+  static void onStart(ServiceInstance service) async {
     WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
 
-    // Ensure DB is ready
-    try {
-      await DBHelper.instance.init();
-    } catch (e) {
-      print("[BG] DB Init Error: $e");
-    }
+    print("🔥 BACKGROUND SERVICE STARTED");
 
+    await DBHelper.instance.init();
     final prefs = await SharedPreferences.getInstance();
     final notifications = FlutterLocalNotificationsPlugin();
 
-    // State Variables
-    Map<String, dynamic>? activeEvent;
+    // ---------------------------------------------------------------
+    // TOTAL STEPS VARIABLES
+    // ---------------------------------------------------------------
+    int lastRaw = prefs.getInt("last_raw") ?? -1;
+    int totalSteps = prefs.getInt("total_steps") ?? 0;
+
+    // ---------------------------------------------------------------
+    // EVENT LOGIC
+    // ---------------------------------------------------------------
     int? eventStartSteps;
+    Map<String, dynamic>? activeEvent;
+    int? lastEventId;
 
-    // -------------------------------
-    // HELPERS
-    // -------------------------------
+    // PROGRAM START DATE (5-DAY WINDOW)
+    DateTime programStart =
+    DateTime.parse(prefs.getString("program_start_date")!);
+    DateTime programEnd = programStart.add(const Duration(days: 5));
 
-    Future<Map<String, dynamic>?> getActiveEvent() async {
-      try {
-        final now = DateTime.now().toIso8601String();
-        final events = await DBHelper.instance.getEvents();
+    // ---------------------------------------------------------------
+    // TIME JUMP DETECTION
+    // ---------------------------------------------------------------
+    int lastSystemTime =
+        prefs.getInt("last_system_time") ?? DateTime.now().millisecondsSinceEpoch;
 
-        for (var e in events) {
-          if (now.compareTo(e["startDateTime"]) >= 0 &&
-              now.compareTo(e["endDateTime"]) <= 0) {
-            return e;
-          }
-        }
-      } catch (e) {
-        print("[BG] ActiveEvent Error: $e");
+    Future<void> handleTimeJump() async {
+      final now = DateTime.now();
+      final nowMs = now.millisecondsSinceEpoch;
+      final diff = (nowMs - lastSystemTime).abs();
+
+      if (diff > 60 * 1000) {
+        print("⏱ TIME JUMP DETECTED: ${diff ~/ 1000}s");
+
+        lastEventId = null;
+        eventStartSteps = null;
+        prefs.remove("last_step_count");
       }
+
+      prefs.setInt("last_system_time", nowMs);
+      lastSystemTime = nowMs;
+    }
+
+    // ---------------------------------------------------------------
+    // 2 EVENTS DAILY
+    // ---------------------------------------------------------------
+    Future<Map<String, dynamic>?> getCurrentDailyEvent() async {
+      final now = DateTime.now();
+
+      // STOP COUNTING IF > 5 DAYS
+      if (now.isAfter(programEnd)) {
+        print("⛔ PROGRAM EXPIRED — 5 days completed.");
+        return null;
+      }
+
+      // Morning today 10:00–10:05
+      final morning = {
+        "id": 1,
+        "name": "Morning Event",
+        "start": DateTime(now.year, now.month, now.day, 10, 0),
+        "end": DateTime(now.year, now.month, now.day, 10, 5),
+      };
+
+      // Evening today 18:00–18:05
+      final evening = {
+        "id": 2,
+        "name": "Evening Event",
+        "start": DateTime(now.year, now.month, now.day, 18, 0),
+        "end": DateTime(now.year, now.month, now.day, 18, 5),
+      };
+
+      if (now.isAfter(morning["start"] as DateTime) &&
+          now.isBefore(morning["end"] as DateTime)) {
+        return morning;
+      }
+
+      if (now.isAfter(evening["start"] as DateTime) &&
+          now.isBefore(evening["end"] as DateTime)) {
+        return evening;
+      }
+
+
       return null;
     }
 
-    Future<void> updateNotification(int steps, String status) async {
+    // ---------------------------------------------------------------
+    // NOTIFICATION
+    // ---------------------------------------------------------------
+    Future<void> updateNotification(int raw, String eventName) async {
       if (service is AndroidServiceInstance) {
-        final android = AndroidNotificationDetails(
-          'my_foreground',
-          'My Foreground Service',
-          icon: 'ic_bg_service_small',
-          ongoing: true,
-          importance: Importance.low,
-        );
-
         await notifications.show(
           888,
-          "Steps: $steps",
-          status,
-          NotificationDetails(android: android),
+          "Steps: $raw",
+          eventName,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'my_foreground',
+              'MY FOREGROUND SERVICE',
+              icon: 'ic_bg_service_small',
+              ongoing: true,
+            ),
+          ),
         );
 
         service.setForegroundNotificationInfo(
-          title: "Steps: $steps",
-          content: status,
+          title: "Steps: $raw",
+          content: eventName,
         );
       }
     }
 
-    // -------------------------------
-    // STEP LISTENER
-    // -------------------------------
+    // ---------------------------------------------------------------
+    // PEDOMETER STREAM
+    // ---------------------------------------------------------------
+    StreamSubscription<StepCount>? pedStream;
 
-    StreamSubscription<StepCount>? stepListener;
-    StreamSubscription<PedestrianStatus>? statusListener;
+    pedStream = Pedometer.stepCountStream.listen((StepCount event) async {
+      final raw = event.steps;
+      final now = DateTime.now();
 
-    try {
-      // Pedestrian Status
-      statusListener =
-          Pedometer.pedestrianStatusStream.listen((PedestrianStatus status) {
-            prefs.setString("ped_status", status.status);
-          });
+      await handleTimeJump();
 
-      // MAIN STEP HANDLER
-      stepListener = Pedometer.stepCountStream.listen((StepCount event) async {
-        final rawSteps = event.steps;
+      // ---------------- TOTAL STEPS ALWAYS COUNTED ----------------
+      if (lastRaw == -1) lastRaw = raw;
 
-        // Save raw steps
-        prefs.setInt("current_steps_snapshot", rawSteps);
+      int inc = raw - lastRaw;
+      if (inc < 0) inc = 0;
 
-        // --------------------------------
-        // Calculate TOTAL steps
-        // --------------------------------
-        int last = prefs.getInt("last_raw") ?? rawSteps;
-        int inc = rawSteps - last;
-        if (inc < 0) inc = 0;
+      totalSteps += inc;
 
-        int total = prefs.getInt("total_steps") ?? 0;
-        total += inc;
+      prefs.setInt("last_raw", raw);
+      prefs.setInt("total_steps", totalSteps);
 
-        prefs.setInt("last_raw", rawSteps);
-        prefs.setInt("total_steps", total);
+      lastRaw = raw;
 
-        // --------------------------------
-        // Update notification
-        // --------------------------------
-        await updateNotification(rawSteps,
-            activeEvent != null ? "Event: ${activeEvent!['name']}" : "No event");
+      service.invoke("steps_update", {
+        "raw_steps": raw,
+        "total_steps": totalSteps,
+      });
 
-        // --------------------------------
-        // Event logic
-        // --------------------------------
+      // ---------------- EVENT STEP LOGIC ----------------
+      final newEvent = await getCurrentDailyEvent();
 
-        activeEvent ??= await getActiveEvent();
-        if (activeEvent == null) return;
+      if (newEvent == null) {
+        activeEvent = null;
+        eventStartSteps = null;
+        lastEventId = null;
 
-        int eventId = activeEvent!["id"];
+        await updateNotification(raw, "No Active Event");
+        return;
+      }
 
-        final prevStats =
-        await DBHelper.instance.getEventStats("user1", eventId);
+      // EVENT SWITCH
+      if (lastEventId != newEvent["id"]) {
+        print("🔄 EVENT CHANGED → ${newEvent["name"]}");
 
-        if (eventStartSteps == null) {
-          if (prevStats != null) {
-            eventStartSteps = rawSteps - (prevStats["steps"] as int);
-          } else {
-            eventStartSteps = rawSteps;
-          }
-          prefs.setInt("event_start_steps_$eventId", eventStartSteps!);
+        eventStartSteps = null;
+        lastEventId = newEvent["id"];
+        activeEvent = newEvent;
+      }
+
+      // BASELINE
+      if (eventStartSteps == null) {
+        final prevStats = await DBHelper.instance.getEventStats("user1", newEvent["id"]);
+
+        if (prevStats != null) {
+          eventStartSteps = raw - (prevStats["steps"] as int);
+        } else {
+          eventStartSteps = raw;
         }
 
-        int eventSteps = rawSteps - eventStartSteps!;
-        if (eventSteps < 0) eventSteps = 0;
+        prefs.setInt("event_start_steps_${newEvent["id"]}", eventStartSteps!);
+      }
 
-        double distance = eventSteps * 0.8;
-        double calories = eventSteps * 0.04;
+      // EVENT STEPS
+      int eventSteps = raw - eventStartSteps!;
+      if (eventSteps < 0) eventSteps = 0;
 
-        try {
-          await DBHelper.instance.updateEventStatsAbsolute(
-            userId: "user1",
-            eventId: eventId,
-            steps: eventSteps,
-            distance: distance,
-            calories: calories,
-          );
-        } catch (e) {
-          print("[BG] DB Update Failed: $e");
-        }
+      // SAVE ACCUMULATED STEPS
+      await DBHelper.instance.updateEventStatsAccumulate(
+        userId: "user1",
+        eventId: newEvent["id"],
+        steps: eventSteps,
+        distance: eventSteps * 0.8,
+        calories: eventSteps * 0.04,
+      );
 
-        prefs.setInt("last_step_count", rawSteps);
-
-        // SEND TO UI
-        service.invoke("steps_update", {
-          "raw_steps": rawSteps,
-          "total_steps": total,
-          "event": activeEvent!["name"],
-        });
-      });
-    } catch (e) {
-      print("[BG] Step Listener Error: $e");
-    }
-
-    // -------------------------------
-    // PERIODIC NOTIFICATION REFRESH
-    // -------------------------------
-    Timer.periodic(const Duration(seconds: 1), (timer) async {
-      int steps = prefs.getInt("current_steps_snapshot") ?? 0;
-
-      activeEvent = await getActiveEvent();
-
-      await updateNotification(
-          steps, activeEvent != null ? "Event: ${activeEvent!['name']}" : "No event");
-
-      service.invoke("update", {
-        "current_date": DateTime.now().toIso8601String(),
-        "steps": steps,
-        "total": prefs.getInt("total_steps") ?? 0,
-        "event": activeEvent != null ? activeEvent!["name"] : "",
-      });
+      await updateNotification(raw, newEvent["name"]);
     });
 
-    // -------------------------------
-    // STOP HANDLER
-    // -------------------------------
-    service.on("stopService").listen((event) async {
-      await stepListener?.cancel();
-      await statusListener?.cancel();
-      service.stopSelf();
+    // ---------------------------------------------------------------
+    // PERIODIC SAFE UI UPDATE LOOP
+    // ---------------------------------------------------------------
+    Timer.periodic(const Duration(seconds: 1), (timer) async {
+      final raw = prefs.getInt("last_raw") ?? 0;
+
+      final evt = await getCurrentDailyEvent();
+      final name = evt != null ? evt["name"] : "No event";
+
+      await updateNotification(raw, name);
+
+      service.invoke("update", {
+        "steps": raw,
+        "total": prefs.getInt("total_steps") ?? 0,
+        "event": name,
+      });
     });
   }
 }
