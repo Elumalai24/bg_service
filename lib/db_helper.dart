@@ -1,9 +1,10 @@
 // lib/db_helper.dart
-
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+
+import 'models/event_model.dart';
 
 class DBHelper {
   DBHelper._privateConstructor();
@@ -38,10 +39,28 @@ class DBHelper {
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE events(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        startDateTime TEXT NOT NULL,
-        endDateTime TEXT NOT NULL
+        id INTEGER PRIMARY KEY,
+        event_name TEXT,
+        event_date TEXT,
+        event_from_date TEXT,
+        event_to_date TEXT,
+        event_from_time TEXT,
+        event_to_time TEXT,
+        event_location TEXT,
+        event_desc TEXT,
+        event_style TEXT,
+        event_type TEXT,
+        status TEXT,
+        created_at TEXT,
+        updated_at TEXT,
+        event_venue_type TEXT,
+        event_banner TEXT,
+        event_goal TEXT,
+        event_goal_type TEXT,
+        event_completion_medal TEXT,
+        event_prize_desc TEXT,
+        client TEXT,
+        event_duration_minutes INTEGER
       )
     ''');
 
@@ -73,28 +92,33 @@ class DBHelper {
   }
 
   /// ----------------------------------------------------------------------
-  /// EVENTS — Only 2 events permanently
+  /// EVENTS
   /// ----------------------------------------------------------------------
 
-  Future<List<Map<String, dynamic>>> getEvents() async {
+  /// Return all events as EventModel objects (ordered by id ASC)
+  Future<List<EventModel>> getEvents() async {
     final db = _ensureDb();
-    return db.query('events', orderBy: "id ASC");
+    final rows = await db.query('events', orderBy: "id ASC");
+    return rows.map((r) => EventModel.fromDb(r)).toList();
   }
 
-  Future<int> insertEvent({
-    required String name,
-    required DateTime start,
-    required DateTime end,
-  }) async {
+  /// Insert or replace an event row (useful for syncing)
+  Future<int> insertOrReplaceEvent(EventModel event) async {
     final db = _ensureDb();
-    return db.insert('events', {
-      'name': name,
-      'startDateTime': start.toIso8601String(),
-      'endDateTime': end.toIso8601String(),
-    });
+    return db.insert(
+      'events',
+      event.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
-  /// 🔥 ONLY create 2 events: morning + evening
+  /// Insert event (used by mock insert)
+  Future<int> insertEventRow(Map<String, dynamic> row) async {
+    final db = _ensureDb();
+    return db.insert('events', row, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// 🔥 Insert mock events if empty (uses the API-shaped mock you provided)
   Future<void> insertMockEventsIfEmpty() async {
     final db = _ensureDb();
 
@@ -105,24 +129,112 @@ class DBHelper {
 
     if (cnt > 0) return;
 
-    // Create ANY day — time portion only is important
-    final today = DateTime.now();
+    final mock = <Map<String, dynamic>>[
+      {
+        "id": 199,
+        "event_name": "Digital Walkathon Morning",
+        "event_date": "2025-11-10",
+        "event_from_date": "2025-11-10",
+        "event_to_date": "2025-12-10",
+        "event_from_time": "04:00",
+        "event_to_time": "09:00",
+        "event_location": "At their own places",
+        "event_desc": "Qualifier Criteria (November 10th – December 10th)\nWalk a minimum of 3 km per day.\nComplete at least 21 days.\nCover a total of 63 km before December 10th.\n\nThose who complete 63 km, which is at least 21 days of walking 3 km per day, will be considered Qualifiers.\n\nMega Event – December 14th\nQualifiers only can compete for winners’ titles: 5 km | 10 km | 21 km.\n\nTop 3 finishers in these categories will be declared as winners.\nNon-qualifiers can still participate but won’t be included in the winners list.",
+        "event_style": null,
+        "event_type": "2",
+        "status": "1",
+        "created_at": "2025-11-02T09:52:10.000000Z",
+        "updated_at": "2025-11-02T14:58:11.000000Z",
+        "event_venue_type": "1",
+        "event_banner": "https://fitex.co.in/build/images/event_banner/1762077129.png",
+        "event_goal": "3",
+        "event_goal_type": "1",
+        "event_completion_medal": "Yes",
+        "event_prize_desc": "5 km | 10 km | 21 km.\nTop 3 finishers in these categories will be declared as winners.",
+        "client": "0",
+        "event_duration_minutes": 300
+      },
+      {
+        "id": 200,
+        "event_name": "Digital Walkathon Evening",
+        "event_date": "2025-11-10",
+        "event_from_date": "2025-11-10",
+        "event_to_date": "2025-12-10",
+        "event_from_time": "17:00",
+        "event_to_time": "22:00",
+        "event_location": "At their own places",
+        "event_desc": "Qualifier Criteria (November 10th – December 10th)\nWalk a minimum of 3 km per day.\nComplete at least 21 days.\nCover a total of 63 km before December 10th.\n\nThose who complete 63 km, which is at least 21 days of walking 3 km per day, will be considered Qualifiers.\n\nMega Event – December 14th\nQualifiers only can compete for winners’ titles: 5 km | 10 km | 21 km.\n\nTop 3 finishers in these categories will be declared as winners.\nNon-qualifiers can still participate but won’t be included in the winners list.",
+        "event_style": null,
+        "event_type": "2",
+        "status": "1",
+        "created_at": "2025-11-02T09:58:41.000000Z",
+        "updated_at": "2025-11-02T09:59:43.000000Z",
+        "event_venue_type": "1",
+        "event_banner": "https://fitex.co.in/build/images/event_banner/1762077521.png",
+        "event_goal": "3",
+        "event_goal_type": "1",
+        "event_completion_medal": "Yes",
+        "event_prize_desc": "5 km | 10 km | 21 km.\nTop 3 finishers in these categories will be declared as winners.",
+        "client": "0",
+        "event_duration_minutes": 300
+      },
+      {
+        "id": 211,
+        "event_name": "Walk it",
+        "event_date": "2025-11-22",
+        "event_from_date": "2025-11-22",
+        "event_to_date": "2025-11-30",
+        "event_from_time": "13:25",
+        "event_to_time": "13:35",
+        "event_location": "venue",
+        "event_desc": "Walk More",
+        "event_style": null,
+        "event_type": "2",
+        "status": "1",
+        "created_at": "2025-11-22T07:52:14.000000Z",
+        "updated_at": "2025-11-22T07:52:14.000000Z",
+        "event_venue_type": "1",
+        "event_banner": "https://fitex.co.in/build/images/event_banner/1763797934.png",
+        "event_goal": "1",
+        "event_goal_type": "1",
+        "event_completion_medal": "Yes",
+        "event_prize_desc": "Test Rewards",
+        "client": "0",
+        "event_duration_minutes": 10
+      }
+    ];
 
-    // Morning
-    await insertEvent(
-      name: "Morning Event",
-      start: DateTime(today.year, today.month, today.day, 10, 0),
-      end: DateTime(today.year, today.month, today.day, 10, 5),
-    );
+    for (final m in mock) {
+      // Ensure event_date/from/to are stored as date-only strings
+      final row = {
+        'id': m['id'],
+        'event_name': m['event_name'],
+        'event_date': m['event_date'],
+        'event_from_date': m['event_from_date'],
+        'event_to_date': m['event_to_date'],
+        'event_from_time': m['event_from_time'],
+        'event_to_time': m['event_to_time'],
+        'event_location': m['event_location'],
+        'event_desc': m['event_desc'],
+        'event_style': m['event_style'],
+        'event_type': m['event_type'],
+        'status': m['status'],
+        'created_at': m['created_at'],
+        'updated_at': m['updated_at'],
+        'event_venue_type': m['event_venue_type'],
+        'event_banner': m['event_banner'],
+        'event_goal': m['event_goal'],
+        'event_goal_type': m['event_goal_type'],
+        'event_completion_medal': m['event_completion_medal'],
+        'event_prize_desc': m['event_prize_desc'],
+        'client': m['client'],
+        'event_duration_minutes': m['event_duration_minutes'],
+      };
 
-    // Evening
-    await insertEvent(
-      name: "Evening Event",
-      start: DateTime(today.year, today.month, today.day, 18, 0),
-      end: DateTime(today.year, today.month, today.day, 18, 5),
-    );
+      await db.insert('events', row, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
 
-    print("✔ Inserted 2 permanent events.");
+    print("✔ Inserted ${mock.length} mock events.");
   }
 
   /// ----------------------------------------------------------------------
@@ -194,6 +306,7 @@ class DBHelper {
     return db.query(
       "event_stats",
       where: "userId = ?",
+      whereArgs: [userId],
     );
   }
 

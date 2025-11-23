@@ -1,31 +1,27 @@
+// lib/event_details_screen.dart
+
 import 'package:flutter/material.dart';
 import 'db_helper.dart';
-
 
 class EventStatsScreen extends StatefulWidget {
   final int eventId;
   final String eventName;
 
-
   const EventStatsScreen({Key? key, required this.eventId, required this.eventName}) : super(key: key);
-
 
   @override
   State<EventStatsScreen> createState() => _EventStatsScreenState();
 }
 
-
 class _EventStatsScreenState extends State<EventStatsScreen> {
   Map<String, dynamic>? stats;
   bool loading = true;
-
 
   @override
   void initState() {
     super.initState();
     loadStats();
   }
-
 
   Future<void> loadStats() async {
     final data = await DBHelper.instance.getEventStats('user1', widget.eventId);
@@ -34,7 +30,6 @@ class _EventStatsScreenState extends State<EventStatsScreen> {
       loading = false;
     });
   }
-
 
   @override
   Widget build(BuildContext context) {
