@@ -7,7 +7,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../db_helper.dart';
+import 'db_helper.dart';
 import '../models/event_model.dart';
 
 @pragma('vm:entry-point')
@@ -200,16 +200,35 @@ class BackgroundService {
         prefs.setInt("event_start_steps_${newEvent.id}", eventStartSteps!);
       }
 
-      int eventSteps = raw - eventStartSteps!;
-      if (eventSteps < 0) eventSteps = 0;
+      // Calculate delta since last update (or start)
+      // We need to track the last processed raw value for the event to get a true delta
+      // However, the existing logic uses a baseline `eventStartSteps` and calculates total `eventSteps` from it.
+      // To get a delta for *this* update, we can compare with the previous `eventSteps`.
+      // BUT, the user wants to split day wise.
+      // The safest way to handle "daily" splits without complex state management is to just add the *increment* (delta) to the DB.
+      // The `inc` variable calculated earlier (lines 165-166) represents the new steps since the last stream event.
+      // We should use THAT `inc` for the event as well, provided the event is active.
 
-      await DBHelper.instance.updateEventStatsAccumulate(
-        userId: "user1",
-        eventId: newEvent.id,
-        steps: eventSteps,
-        distance: eventSteps * 0.8,
-        calories: eventSteps * 0.04,
-      );
+      // Let's use `inc` (calculated at line 165) which is the delta since the last Pedometer event.
+      // If we are in an event, this `inc` belongs to that event.
+
+      if (inc > 0) {
+        await DBHelper.instance.updateEventStatsAccumulate(
+          userId: "user1",
+          eventId: newEvent.id,
+          steps: inc,
+          distance: inc * 0.8,
+          calories: inc * 0.04,
+        );
+
+        await DBHelper.instance.updateDailyEventStats(
+          userId: "user1",
+          eventId: newEvent.id,
+          steps: inc,
+          distance: inc * 0.8,
+          calories: inc * 0.04,
+        );
+      }
 
       await updateNotif(raw, newEvent.eventName);
     });

@@ -4,7 +4,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 
-import 'models/event_model.dart';
+import '../models/event_model.dart';
 
 class DBHelper {
   DBHelper._privateConstructor();
@@ -75,6 +75,20 @@ class DBHelper {
         UNIQUE(userId, eventId)
       )
     ''');
+
+    // NEW: Daily stats table
+    await db.execute('''
+      CREATE TABLE daily_event_stats(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT NOT NULL,
+        eventId INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        steps INTEGER NOT NULL DEFAULT 0,
+        distance REAL NOT NULL DEFAULT 0,
+        calories REAL NOT NULL DEFAULT 0,
+        UNIQUE(userId, eventId, date)
+      )
+    ''');
   }
 
   Database _ensureDb() {
@@ -100,6 +114,21 @@ class DBHelper {
     final db = _ensureDb();
     final rows = await db.query('events', orderBy: "id ASC");
     return rows.map((r) => EventModel.fromDb(r)).toList();
+  }
+
+  /// Get single event by ID
+  Future<EventModel?> getEventById(int id) async {
+    final db = _ensureDb();
+    final rows = await db.query(
+      'events',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) {
+      return EventModel.fromDb(rows.first);
+    }
+    return null;
   }
 
   /// Insert or replace an event row (useful for syncing)
@@ -286,6 +315,71 @@ class DBHelper {
         "calories": calories,
       });
     }
+  }
+
+  /// ----------------------------------------------------------------------
+  /// DAILY EVENT STATS
+  /// ----------------------------------------------------------------------
+
+  /// Adds +steps (delta) to the daily record
+  Future<void> updateDailyEventStats({
+    required String userId,
+    required int eventId,
+    required int steps,
+    required double distance,
+    required double calories,
+  }) async {
+    final db = _ensureDb();
+    final today = DateTime.now();
+    final dateStr = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+
+    // Get existing record for TODAY
+    final exists = await db.query(
+      "daily_event_stats",
+      where: "userId = ? AND eventId = ? AND date = ?",
+      whereArgs: [userId, eventId, dateStr],
+      limit: 1,
+    );
+
+    if (exists.isNotEmpty) {
+      final prev = exists.first;
+
+      final newSteps = (prev['steps'] as int) + steps;
+      final newDist = _safeDouble(prev['distance']) + distance;
+      final newCal = _safeDouble(prev['calories']) + calories;
+
+      await db.update(
+        "daily_event_stats",
+        {
+          "steps": newSteps,
+          "distance": newDist,
+          "calories": newCal,
+        },
+        where: "userId = ? AND eventId = ? AND date = ?",
+        whereArgs: [userId, eventId, dateStr],
+      );
+    } else {
+      // Insert fresh for TODAY
+      await db.insert("daily_event_stats", {
+        "userId": userId,
+        "eventId": eventId,
+        "date": dateStr,
+        "steps": steps,
+        "distance": distance,
+        "calories": calories,
+      });
+    }
+  }
+
+  /// Get daily stats for one event
+  Future<List<Map<String, dynamic>>> getDailyStatsForEvent(String userId, int eventId) async {
+    final db = _ensureDb();
+    return db.query(
+      "daily_event_stats",
+      where: "userId = ? AND eventId = ?",
+      whereArgs: [userId, eventId],
+      orderBy: "date ASC",
+    );
   }
 
   /// Get stats for one event
