@@ -1,18 +1,24 @@
-import 'dart:async';
-import 'dart:ui';
 import 'package:bg_service/utils/background_service.dart';
 import 'package:bg_service/utils/permission_service.dart';
-import 'package:bg_service/ui/screens/home_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:get/get.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'utils/db_helper.dart';
+import 'bindings/initial_binding.dart';
+import 'routes/app_routes.dart';
+import 'routes/app_pages.dart';
+import 'core/constants/app_constants.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Initialize GetStorage
+  await GetStorage.init();
+
   // Permissions
   final ok = await PermissionsService.requestAllPermissions();
-  if (!ok) debugPrint("⚠ Some permissions NOT granted!");
+  if (!ok) debugPrint("Some permissions NOT granted!");
 
   // DB + mock events
   await DBHelper.instance.init();
@@ -29,10 +35,27 @@ Future<void> main() async {
   // Start background service
   await BackgroundService.initialize();
 
-  runApp(const MaterialApp(
-    debugShowCheckedModeBanner: false,
-    home: HomeScreen(),
-  ));
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return GetMaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: AppConstants.appName,
+      theme: ThemeData(
+        primaryColor: AppConstants.primaryColor,
+        colorScheme: ColorScheme.fromSeed(seedColor: AppConstants.primaryColor),
+        useMaterial3: true,
+      ),
+      initialBinding: InitialBinding(),
+      initialRoute: AppRoutes.splash,
+      getPages: AppPages.pages,
+    );
+  }
 }
 
 
