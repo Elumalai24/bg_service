@@ -147,6 +147,27 @@ class DBHelper {
     return db.insert('events', row, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Clear all events and insert new ones (for API sync)
+  Future<void> clearAndInsertEvents(List<EventModel> events) async {
+    final db = _ensureDb();
+    
+    await db.transaction((txn) async {
+      // Clear existing events
+      await txn.delete('events');
+      
+      // Insert new events
+      for (final event in events) {
+        await txn.insert(
+          'events',
+          event.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+    
+    print('✔ Synced ${events.length} events from API to local database');
+  }
+
   /// 🔥 Insert mock events if empty (uses the API-shaped mock you provided)
   Future<void> insertMockEventsIfEmpty() async {
     final db = _ensureDb();

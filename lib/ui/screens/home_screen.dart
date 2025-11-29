@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/constants/app_constants.dart';
 import 'events_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -22,6 +24,20 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadInitial();
     _listenUpdates();
+    
+    // Sync auth info to background service on startup
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final storage = GetStorage();
+      final token = storage.read(AppConstants.tokenKey);
+      final userId = storage.read(AppConstants.userIdKey);
+      
+      if (token != null && userId != null) {
+        FlutterBackgroundService().invoke("update_auth", {
+          "token": token,
+          "user_id": userId.toString(),
+        });
+      }
+    });
   }
 
   Future<void> _loadInitial() async {
@@ -88,6 +104,23 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               child: const Text("Show Events"),
             ),
+
+            const SizedBox(height: 20),
+
+            // ElevatedButton.icon(
+            //   onPressed: () {
+            //     FlutterBackgroundService().invoke("force_sync");
+            //     ScaffoldMessenger.of(context).showSnackBar(
+            //       const SnackBar(content: Text("Sync triggered! Check logs.")),
+            //     );
+            //   },
+            //   icon: const Icon(Icons.sync),
+            //   label: const Text("Force Sync (Test)"),
+            //   style: ElevatedButton.styleFrom(
+            //     backgroundColor: Colors.orange,
+            //     foregroundColor: Colors.white,
+            //   ),
+            // ),
           ],
         ),
       ),

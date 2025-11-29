@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import '../core/constants/app_constants.dart';
@@ -93,6 +94,12 @@ class AuthController extends GetxController {
         if (token != null && userId != null) {
           await _storage.write(AppConstants.tokenKey, token);
           await _storage.write(AppConstants.userIdKey, userId);
+
+          // Update Background Service with new auth info
+          FlutterBackgroundService().invoke("update_auth", {
+            "token": token,
+            "user_id": userId,
+          });
 
           // Try to fetch full profile
           final profileRes = await _authRepo.getProfile(userId);
