@@ -11,7 +11,7 @@ class DBHelper {
   static final DBHelper instance = DBHelper._privateConstructor();
 
   static const _dbName = 'event_tracker.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2; // Incremented for sync tables
 
   Database? _db;
 
@@ -30,6 +30,7 @@ class DBHelper {
       path,
       version: _dbVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -89,6 +90,68 @@ class DBHelper {
         UNIQUE(userId, eventId, date)
       )
     ''');
+
+    // Sync tracking table
+    await db.execute('''
+      CREATE TABLE event_sync_log(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT NOT NULL,
+        eventId INTEGER NOT NULL,
+        activityDate TEXT NOT NULL,
+        syncedAt TEXT NOT NULL,
+        UNIQUE(userId, eventId, activityDate)
+      )
+    ''');
+
+    // Pending syncs queue (for offline retry)
+    await db.execute('''
+      CREATE TABLE pending_syncs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT NOT NULL,
+        eventId INTEGER NOT NULL,
+        activityDate TEXT NOT NULL,
+        steps INTEGER NOT NULL DEFAULT 0,
+        distance REAL NOT NULL DEFAULT 0,
+        calories REAL NOT NULL DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        scheduledSyncTime TEXT NOT NULL
+      )
+    ''');
+  }
+
+  /// ----------------------------------------------------------------------
+  /// SCHEMA UPGRADE
+  /// ----------------------------------------------------------------------
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add sync tracking tables
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS event_sync_log(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId TEXT NOT NULL,
+          eventId INTEGER NOT NULL,
+          activityDate TEXT NOT NULL,
+          syncedAt TEXT NOT NULL,
+          UNIQUE(userId, eventId, activityDate)
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS pending_syncs(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId TEXT NOT NULL,
+          eventId INTEGER NOT NULL,
+          activityDate TEXT NOT NULL,
+          steps INTEGER NOT NULL DEFAULT 0,
+          distance REAL NOT NULL DEFAULT 0,
+          calories REAL NOT NULL DEFAULT 0,
+          createdAt TEXT NOT NULL,
+          scheduledSyncTime TEXT NOT NULL
+        )
+      ''');
+
+      print("✔ Database upgraded to version $newVersion");
+    }
   }
 
   Database _ensureDb() {
@@ -266,6 +329,34 @@ class DBHelper {
     print("✔ Inserted ${mock.length} mock events.");
   }
 
+  /// Clear all events and insert new ones from API
+  Future<void> clearAndInsertEvents(List<EventModel> events) async {
+    final db = _ensureDb();
+
+    // Delete all existing events
+    await db.delete('events');
+
+    // Insert new events
+    for (final event in events) {
+      await db.insert(
+        'events',
+        event.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+
+    print("✔ Synced ${events.length} events from API.");
+  }
+
+  /// Get count of events in database
+  Future<int> getEventsCount() async {
+    final db = _ensureDb();
+    final count = Sqflite.firstIntValue(
+      await db.rawQuery("SELECT COUNT(*) FROM events"),
+    );
+    return count ?? 0;
+  }
+
   /// ----------------------------------------------------------------------
   /// ACCUMULATIVE EVENT STATS
   /// ----------------------------------------------------------------------
@@ -433,5 +524,91 @@ class DBHelper {
     if (v is int) return v.toDouble();
     if (v is double) return v;
     return double.tryParse(v.toString()) ?? 0.0;
+  }
+
+  /// ----------------------------------------------------------------------
+  /// SYNC TRACKING
+  /// ----------------------------------------------------------------------
+
+  /// Mark event as synced for a specific date
+  Future<void> markEventSynced({
+    required String userId,
+    required int eventId,
+    required String activityDate,
+  }) async {
+    final db = _ensureDb();
+    await db.insert(
+      'event_sync_log',
+      {
+        'userId': userId,
+        'eventId': eventId,
+        'activityDate': activityDate,
+        'syncedAt': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Check if event is already synced for a specific date
+  Future<bool> isEventSynced({
+    required String userId,
+    required int eventId,
+    required String activityDate,
+  }) async {
+    final db = _ensureDb();
+    final rows = await db.query(
+      'event_sync_log',
+      where: 'userId = ? AND eventId = ? AND activityDate = ?',
+      whereArgs: [userId, eventId, activityDate],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Add failed sync to pending queue with scheduled time
+  Future<void> addPendingSync({
+    required String userId,
+    required int eventId,
+    required String activityDate,
+    required int steps,
+    required double distance,
+    required double calories,
+    required DateTime scheduledSyncTime,
+  }) async {
+    final db = _ensureDb();
+    print("💾 DBHelper.addPendingSync called: userId=$userId, eventId=$eventId, date=$activityDate, steps=$steps");
+    
+    await db.insert('pending_syncs', {
+      'userId': userId,
+      'eventId': eventId,
+      'activityDate': activityDate,
+      'steps': steps,
+      'distance': distance,
+      'calories': calories,
+      'createdAt': DateTime.now().toIso8601String(),
+      'scheduledSyncTime': scheduledSyncTime.toIso8601String(),
+    });
+    
+    print("✅ Pending sync inserted successfully for event $eventId");
+  }
+
+  /// Get all pending syncs
+  Future<List<Map<String, dynamic>>> getPendingSyncs() async {
+    final db = _ensureDb();
+    final results = await db.query('pending_syncs', orderBy: 'createdAt ASC');
+    print("🔍 DBHelper.getPendingSyncs: Found ${results.length} pending syncs");
+    return results;
+  }
+
+  /// Remove pending sync after successful upload
+  Future<void> removePendingSync(int id) async {
+    final db = _ensureDb();
+    await db.delete('pending_syncs', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Clear all pending syncs (e.g., on logout)
+  Future<void> clearPendingSyncs() async {
+    final db = _ensureDb();
+    await db.delete('pending_syncs');
   }
 }

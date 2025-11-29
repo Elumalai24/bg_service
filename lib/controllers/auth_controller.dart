@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants/app_constants.dart';
 import '../data/models/user_model.dart';
 import '../data/models/client_model.dart';
@@ -93,6 +94,10 @@ class AuthController extends GetxController {
         if (token != null && userId != null) {
           await _storage.write(AppConstants.tokenKey, token);
           await _storage.write(AppConstants.userIdKey, userId);
+
+          // Store user ID for background service
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('current_user_id', userId);
 
           // Try to fetch full profile
           final profileRes = await _authRepo.getProfile(userId);

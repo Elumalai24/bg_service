@@ -11,18 +11,22 @@ import 'routes/app_pages.dart';
 import 'core/constants/app_constants.dart';
 
 Future<void> main() async {
+  print("🎬 App starting...");
   WidgetsFlutterBinding.ensureInitialized();
 
   // Initialize GetStorage
   await GetStorage.init();
+  print("✓ GetStorage initialized");
 
   // Permissions
   final ok = await PermissionsService.requestAllPermissions();
   if (!ok) debugPrint("Some permissions NOT granted!");
+  print("✓ Permissions checked");
 
   // DB + mock events
   await DBHelper.instance.init();
   await DBHelper.instance.insertMockEventsIfEmpty();
+  print("✓ Database initialized");
 
   // Program start date
   final prefs = await SharedPreferences.getInstance();
@@ -31,10 +35,13 @@ Future<void> main() async {
     final start = DateTime(now.year, now.month, now.day);
     await prefs.setString('program_start_date', start.toIso8601String());
   }
+  print("✓ Program start date set");
 
   // Start background service
   await BackgroundService.initialize();
+  print("✓ Background service initialized");
 
+  print("🚀 Launching app UI...");
   runApp(const MyApp());
 }
 

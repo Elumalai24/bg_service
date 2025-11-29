@@ -16,6 +16,8 @@ class AppConstants {
   static const String signupEndpoint = '/register';
   static const String clientsEndpoint = '/clients';
   static const String profileEndpoint = '/profile';
+  static const String eventsEndpoint = '/events';
+  static const String movesEndpoint = '/moves';
 
   // Legal URLs
   static const String termsUrl = 'http://fitex.co.in/terms_and_conditions';

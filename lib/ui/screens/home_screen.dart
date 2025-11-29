@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'debug_screen.dart';
 import 'events_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -87,6 +88,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
               },
               child: const Text("Show Events"),
+            ),
+
+            // In HomeScreen build method, add this button
+            FloatingActionButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DebugScreen()),
+                );
+              },
+              child: const Icon(Icons.bug_report),
             ),
           ],
         ),

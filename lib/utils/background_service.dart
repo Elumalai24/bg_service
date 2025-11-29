@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
@@ -97,6 +98,12 @@ class BackgroundService {
     EventModel? activeEvent;
     int? lastEventId;
 
+    // Get current user ID from storage (set during login)
+    String currentUserId = prefs.getString('current_user_id') ?? 'user1';
+
+    // Event completion tracking
+    EventModel? lastActiveEvent;
+
     // Program 5-day validity
     DateTime programStart =
     DateTime.parse(prefs.getString("program_start_date")!);
@@ -116,6 +123,12 @@ class BackgroundService {
       await prefs.setInt("last_system_time", nowMs);
     }
 
+    // Helper: Get today's date as YYYY-MM-DD string
+    String getTodayDateString() {
+      final now = DateTime.now();
+      return "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    }
+
     // Active event from DB
     Future<EventModel?> getActiveEvent() async {
       final now = DateTime.now();
@@ -129,6 +142,76 @@ class BackgroundService {
         if (!now.isBefore(start) && !now.isAfter(end)) return e;
       }
       return null;
+    }
+
+    // Handle event completion and sync to API
+    Future<void> handleEventCompletion(EventModel completedEvent) async {
+      try {
+        print("🔔 handleEventCompletion called for event ${completedEvent.id}");
+        final today = getTodayDateString();
+        print("📅 Today's date: $today");
+
+        // Check if already synced
+        final alreadySynced = await DBHelper.instance.isEventSynced(
+          userId: currentUserId,
+          eventId: completedEvent.id,
+          activityDate: today,
+        );
+
+        if (alreadySynced) {
+          print("✓ Event ${completedEvent.id} already synced for $today");
+          return;
+        }
+
+        print("🔍 Fetching daily stats for event ${completedEvent.id}...");
+        // Get today's stats for this event
+        final dailyStats = await DBHelper.instance.getDailyStatsForEvent(
+          currentUserId,
+          completedEvent.id,
+        );
+
+        print("📊 Found ${dailyStats.length} daily records for event ${completedEvent.id}");
+
+        // Find today's record
+        final todayStats = dailyStats.where((s) => s['date'] == today).toList();
+
+        if (todayStats.isEmpty) {
+          print("⚠ No stats for event ${completedEvent.id} on $today");
+          return;
+        }
+
+        final stats = todayStats.first;
+        final steps = stats['steps'] as int? ?? 0;
+        final distance = (stats['distance'] as num?)?.toDouble() ?? 0.0;
+        final calories = (stats['calories'] as num?)?.toDouble() ?? 0.0;
+
+        print("📤 Syncing event ${completedEvent.id}: $steps steps on $today");
+
+        // Post to API with random delay to distribute server load
+        try {
+          // Generate random delay between 0-15 minutes
+          final random = Random();
+          final randomMinutes = random.nextInt(2); // 0 to 1 minutes for testing
+          final scheduledTime = DateTime.now().add(Duration(minutes: randomMinutes));
+
+          print("💾 Calling addPendingSync for event ${completedEvent.id}...");
+          await DBHelper.instance.addPendingSync(
+            userId: currentUserId,
+            eventId: completedEvent.id,
+            activityDate: today,
+            steps: steps,
+            distance: distance,
+            calories: calories,
+            scheduledSyncTime: scheduledTime,
+          );
+
+          print("✓ Event ${completedEvent.id} queued for sync in $randomMinutes minutes (at ${scheduledTime.hour}:${scheduledTime.minute.toString().padLeft(2, '0')})");
+        } catch (e) {
+          print("❌ Failed to queue sync for event ${completedEvent.id}: $e");
+        }
+      } catch (e) {
+        print("❌ Failed to handle event completion ${completedEvent.id}: $e");
+      }
     }
 
     Future<void> updateNotif(int raw, String name) async {
@@ -180,6 +263,32 @@ class BackgroundService {
 
       // EVENT LOGIC
       final newEvent = await getActiveEvent();
+
+      // Debug: Log current event status
+      if (newEvent != null) {
+        // Only log every 60 seconds to avoid spam
+        if (DateTime.now().second == 0) {
+          print("📍 Active event: ${newEvent.id} (${newEvent.eventName})");
+        }
+      }
+
+      // DETECT EVENT COMPLETION
+      if (lastActiveEvent != null && newEvent?.id != lastActiveEvent?.id) {
+        // Previous event has ended (either no event now, or different event)
+        print("🏁 Event ${lastActiveEvent!.id} (${lastActiveEvent!.eventName}) completed, triggering sync...");
+        await handleEventCompletion(lastActiveEvent!);
+      }
+
+      // Update last active event
+      if (lastActiveEvent?.id != newEvent?.id) {
+        if (newEvent != null) {
+          print("🎯 Event started: ${newEvent.id} (${newEvent.eventName})");
+        } else if (lastActiveEvent != null) {
+          print("⏸️ No active event (previous: ${lastActiveEvent!.id})");
+        }
+      }
+      lastActiveEvent = newEvent;
+
       if (newEvent == null) {
         activeEvent = null;
         eventStartSteps = null;
@@ -214,7 +323,7 @@ class BackgroundService {
 
       if (inc > 0) {
         await DBHelper.instance.updateEventStatsAccumulate(
-          userId: "user1",
+          userId: currentUserId,
           eventId: newEvent.id,
           steps: inc,
           distance: inc * 0.8,
@@ -222,7 +331,7 @@ class BackgroundService {
         );
 
         await DBHelper.instance.updateDailyEventStats(
-          userId: "user1",
+          userId: currentUserId,
           eventId: newEvent.id,
           steps: inc,
           distance: inc * 0.8,

@@ -1,45 +1,61 @@
 // lib/events_screen.dart
 import 'package:flutter/material.dart';
-import '../../utils/db_helper.dart';
+import 'package:get/get.dart';
+import '../../controllers/events_controller.dart';
 import 'event_details_screen.dart';
 import '../../models/event_model.dart';
 
-class EventsListScreen extends StatefulWidget {
+class EventsListScreen extends StatelessWidget {
   const EventsListScreen({Key? key}) : super(key: key);
 
   @override
-  State<EventsListScreen> createState() => _EventsListScreenState();
-}
-
-class _EventsListScreenState extends State<EventsListScreen> {
-  late Future<List<EventModel>> _eventsFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _eventsFuture = DBHelper.instance.getEvents();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final controller = Get.put(EventsController(Get.find()));
+
     return Scaffold(
       appBar: AppBar(title: const Text('Events List')),
-      body: FutureBuilder<List<EventModel>>(
-        future: _eventsFuture,
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+      body: Obx(() {
+        // Show loading indicator on initial load
+        if (controller.isLoading.value && controller.events.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
 
-          final events = snapshot.data!;
-          if (events.isEmpty) {
-            return const Center(child: Text('No events found'));
-          }
+        // Show error if no events and there's an error message
+        if (controller.events.isEmpty && controller.errorMessage.isNotEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 64, color: Colors.grey),
+                const SizedBox(height: 16),
+                Text(
+                  controller.errorMessage.value,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: controller.loadEvents,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ],
+            ),
+          );
+        }
 
-          return ListView.builder(
-            itemCount: events.length,
+        // Show empty state
+        if (controller.events.isEmpty) {
+          return const Center(child: Text('No events found'));
+        }
+
+        // Show events list with pull-to-refresh
+        return RefreshIndicator(
+          onRefresh: controller.refreshEvents,
+          child: ListView.builder(
+            itemCount: controller.events.length,
             itemBuilder: (context, index) {
-              final e = events[index];
+              final e = controller.events[index];
 
               final subtitle =
                   'Start: ${e.eventFromDate.toIso8601String().split("T").first} ${e.eventFromTime}  •  End: ${e.eventToDate.toIso8601String().split("T").first} ${e.eventToTime}';
@@ -63,9 +79,9 @@ class _EventsListScreenState extends State<EventsListScreen> {
                 ),
               );
             },
-          );
-        },
-      ),
+          ),
+        );
+      }),
     );
   }
 }
