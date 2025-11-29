@@ -1,6 +1,8 @@
 // lib/event_details_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:get_storage/get_storage.dart';
+import '../../core/constants/app_constants.dart';
 import '../../utils/db_helper.dart';
 
 class EventStatsScreen extends StatefulWidget {
@@ -25,9 +27,13 @@ class _EventStatsScreenState extends State<EventStatsScreen> {
   }
 
   Future<void> loadStats() async {
+    // Get the actual logged-in user ID
+    final storage = GetStorage();
+    final userId = storage.read(AppConstants.userIdKey)?.toString() ?? 'user1';
+    
     final event = await DBHelper.instance.getEventById(widget.eventId);
-    final data = await DBHelper.instance.getEventStats('user1', widget.eventId);
-    final daily = await DBHelper.instance.getDailyStatsForEvent('user1', widget.eventId);
+    final data = await DBHelper.instance.getEventStats(userId, widget.eventId);
+    final daily = await DBHelper.instance.getDailyStatsForEvent(userId, widget.eventId);
 
     if (event == null) {
       setState(() {

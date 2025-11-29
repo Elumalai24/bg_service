@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -46,6 +45,20 @@ class BackgroundService {
         .resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
+
+    // NEW: Alert Channel for Sync Status
+    const AndroidNotificationChannel alertChannel = AndroidNotificationChannel(
+      'sync_alerts',
+      'Sync Alerts',
+      description: 'Notifications for API sync status',
+      importance: Importance.high,
+      playSound: true,
+    );
+
+    await notifications
+        .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(alertChannel);
 
     await service.configure(
       androidConfiguration: AndroidConfiguration(
@@ -94,6 +107,26 @@ class BackgroundService {
 
     final prefs = await SharedPreferences.getInstance();
     final notifications = FlutterLocalNotificationsPlugin();
+
+    // Helper to show alert notification
+    Future<void> showAlert(String title, String body) async {
+      if (service is AndroidServiceInstance) {
+        await notifications.show(
+          999, // Distinct ID for alerts
+          title,
+          body,
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'sync_alerts',
+              'Sync Alerts',
+              importance: Importance.high,
+              priority: Priority.high,
+              icon: 'ic_bg_service_small',
+            ),
+          ),
+        );
+      }
+    }
 
     int lastRaw = prefs.getInt("last_raw") ?? -1;
     int totalSteps = prefs.getInt("total_steps") ?? 0;
@@ -207,6 +240,7 @@ class BackgroundService {
 
         if (dayStat.isEmpty || (dayStat['steps'] as int? ?? 0) == 0) {
           print("⚠️ No steps to sync for this event today");
+          await showAlert("Sync Skipped", "No steps recorded for ${event.eventName}");
           return;
         }
 
@@ -235,12 +269,46 @@ class BackgroundService {
 
         if (response.statusCode == 200 || response.statusCode == 201) {
           print("✅ Sync successful!");
+          await showAlert("Sync Success", "Uploaded steps for ${event.eventName}");
+          
+          await DBHelper.instance.logSync(
+            userId: userIdStr,
+            eventId: event.id,
+            date: dateStr,
+            status: "SUCCESS",
+            message: "Steps: $steps",
+          );
         } else {
           print("❌ Sync failed: ${response.statusCode} - ${response.statusMessage}");
+          await showAlert("Sync Failed", "Error ${response.statusCode}");
+          
+          await DBHelper.instance.logSync(
+            userId: userIdStr,
+            eventId: event.id,
+            date: dateStr,
+            status: "FAILED",
+            message: "Error: ${response.statusCode}",
+          );
         }
 
       } catch (e) {
         print("❌ Error syncing event data: $e");
+        await showAlert("Sync Error", "Check logs");
+        
+        // We can't log to DB if DB is closed or error is severe, but try anyway
+        try {
+           // Need to get userIdStr again or pass it down
+           final storage = GetStorage();
+           final uId = storage.read(AppConstants.userIdKey)?.toString() ?? "unknown";
+           
+           await DBHelper.instance.logSync(
+            userId: uId,
+            eventId: event.id,
+            date: "unknown",
+            status: "ERROR",
+            message: e.toString(),
+          );
+        } catch (_) {}
       }
     }
 
@@ -329,6 +397,8 @@ class BackgroundService {
            final storage = GetStorage();
            userId = storage.read(AppConstants.userIdKey)?.toString() ?? "user1";
         }
+        
+        print("👣 Saving $inc steps for User: $userId, Event: ${newEvent.id}");
 
         await DBHelper.instance.updateEventStatsAccumulate(
           userId: userId,
@@ -372,6 +442,11 @@ class BackgroundService {
 
       final raw = prefs.getInt("last_raw") ?? 0;
       final evt = await getActiveEvent();
+      
+      // Debug log every 10 seconds or on state change
+      if (timer.tick % 10 == 0) {
+         print("⏱️ Timer Tick: evt=${evt?.eventName}, activeEvent=${activeEvent?.eventName}");
+      }
 
       // Check for event end via timer (in case no steps are taken but time expires)
       if (evt == null && activeEvent != null) {

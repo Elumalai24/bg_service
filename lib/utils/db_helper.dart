@@ -89,6 +89,19 @@ class DBHelper {
         UNIQUE(userId, eventId, date)
       )
     ''');
+
+    // Sync History (for debugging/verification)
+    await db.execute('''
+      CREATE TABLE sync_history(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT NOT NULL,
+        eventId INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        status TEXT NOT NULL,
+        message TEXT,
+        timestamp TEXT NOT NULL
+      )
+    ''');
   }
 
   Database _ensureDb() {
@@ -454,5 +467,31 @@ class DBHelper {
     if (v is int) return v.toDouble();
     if (v is double) return v;
     return double.tryParse(v.toString()) ?? 0.0;
+  }
+
+  /// ----------------------------------------------------------------------
+  /// SYNC HISTORY (for verification)
+  /// ----------------------------------------------------------------------
+  Future<void> logSync({
+    required String userId,
+    required int eventId,
+    required String date,
+    required String status,
+    String? message,
+  }) async {
+    final db = _ensureDb();
+    await db.insert("sync_history", {
+      "userId": userId,
+      "eventId": eventId,
+      "date": date,
+      "status": status,
+      "message": message,
+      "timestamp": DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getSyncHistory() async {
+    final db = _ensureDb();
+    return await db.query("sync_history", orderBy: "timestamp DESC", limit: 50);
   }
 }
