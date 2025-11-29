@@ -97,7 +97,7 @@ class _EventStatsScreenState extends State<EventStatsScreen> {
                     const Text('Total Stats', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
                     _buildStatRow('Steps', '${stats!['steps']}'),
-                    _buildStatRow('Distance', '${stats!['distance'].toStringAsFixed(2)} m'),
+                    _buildStatRow('Distance', '${(stats!['distance'] / 1000).toStringAsFixed(2)} km'),
                     _buildStatRow('Calories', '${stats!['calories'].toStringAsFixed(2)} kcal'),
                     const Divider(height: 40),
                   ] else
@@ -118,7 +118,7 @@ class _EventStatsScreenState extends State<EventStatsScreen> {
                           child: ListTile(
                             title: Text(day['date']),
                             subtitle: Text(
-                              'Steps: ${day['steps']} | Dist: ${day['distance'].toStringAsFixed(1)}m | Cal: ${day['calories'].toStringAsFixed(1)}',
+                              'Steps: ${day['steps']} | Dist: ${(day['distance'] / 1000).toStringAsFixed(2)}km | Cal: ${day['calories'].toStringAsFixed(1)}',
                             ),
                           ),
                         );

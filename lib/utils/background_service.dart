@@ -247,8 +247,11 @@ class BackgroundService {
         final steps = dayStat['steps'] as int;
         final distance = dayStat['distance'] as double;
         final calories = dayStat['calories'] as double;
+        
+        // Convert distance from meters to kilometers for API
+        final distanceKm = distance / 1000;
 
-        print("📤 Posting moves: $steps steps, $distance km, $calories kcal");
+        print("📤 Posting moves: $steps steps, ${distanceKm.toStringAsFixed(2)} km, $calories kcal");
 
         final dio = Dio();
         dio.options.headers['Authorization'] = 'Bearer $token';
@@ -262,7 +265,7 @@ class BackgroundService {
             "event_id": event.id,
             "activity_date": dateStr,
             "steps_count": steps,
-            "distance_km": distance,
+            "distance_km": distanceKm,
             "calories": calories
           },
         );
