@@ -82,7 +82,7 @@ class EventModel {
       eventPrizeDesc: json['event_prize_desc']?.toString() ?? '',
       client: json['client']?.toString() ?? '',
       eventDurationMinutes:
-      int.tryParse(json['event_duration_minutes']?.toString() ?? '') ?? 0,
+          int.tryParse(json['event_duration_minutes']?.toString() ?? '') ?? 0,
     );
   }
 
@@ -149,17 +149,19 @@ class EventModel {
   // Display helpers
   // -----------------------
 
-  /// Get readable status text from numeric code
+  /// Get status based on current date/time
   String get statusText {
-    switch (status) {
-      case '1':
-        return 'Active';
-      case '2':
-        return 'Completed';
-      case '0':
-        return 'Upcoming';
-      default:
-        return status.isNotEmpty ? status : 'Unknown';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final startDate = DateTime(eventFromDate.year, eventFromDate.month, eventFromDate.day);
+    final endDate = DateTime(eventToDate.year, eventToDate.month, eventToDate.day);
+
+    if (today.isBefore(startDate)) {
+      return 'Upcoming';
+    } else if (today.isAfter(endDate)) {
+      return 'Completed';
+    } else {
+      return 'Active';
     }
   }
 

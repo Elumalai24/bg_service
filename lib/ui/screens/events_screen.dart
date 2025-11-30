@@ -368,15 +368,12 @@ class _EventCard extends StatelessWidget {
 
   // Computed properties
   Color get _statusColor {
-    // Handle both numeric codes and text values
-    switch (event.status.toLowerCase()) {
-      case '1':
+    // Use statusText which is calculated from dates
+    switch (event.statusText.toLowerCase()) {
       case 'active':
         return AppConstants.primaryColor;
-      case '0':
       case 'upcoming':
         return Colors.blue;
-      case '2':
       case 'completed':
         return Colors.grey;
       default:
