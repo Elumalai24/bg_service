@@ -1,4 +1,4 @@
-package com.example.bg_service
+package com.festexindia.festplay
 
 import io.flutter.embedding.android.FlutterActivity
 

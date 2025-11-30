@@ -99,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const EventsListScreen()),
+                  MaterialPageRoute(builder: (_) => EventsScreen()),
                 );
               },
               child: const Text("Show Events"),

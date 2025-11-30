@@ -3,7 +3,8 @@
     "allow": [
       "Bash(xcopy:*)",
       "Bash(powershell -Command:*)",
-      "Bash(flutter analyze:*)"
+      "Bash(flutter analyze:*)",
+      "Bash(flutter pub:*)"
     ],
     "deny": [],
     "ask": []
