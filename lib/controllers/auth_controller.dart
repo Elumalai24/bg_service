@@ -34,6 +34,37 @@ class AuthController extends GetxController {
   final currentUser = Rxn<UserModel>();
 
   @override
+  void onInit() {
+    super.onInit();
+    _loadUserFromStorage();
+  }
+
+  /// Load user from storage on app start
+  void _loadUserFromStorage() {
+    final userData = _storage.read(AppConstants.userKey);
+    if (userData != null) {
+      try {
+        currentUser.value = UserModel.fromJson(Map<String, dynamic>.from(userData));
+      } catch (e) {
+        debugPrint('Error loading user from storage: $e');
+      }
+    }
+  }
+
+  /// Refresh user profile from API
+  Future<void> refreshProfile() async {
+    final userId = _storage.read(AppConstants.userIdKey)?.toString();
+    if (userId == null) return;
+
+    final profileRes = await _authRepo.getProfile(userId);
+    if (profileRes.success && profileRes.data != null) {
+      final user = UserModel.fromJson(profileRes.data!);
+      await _storage.write(AppConstants.userKey, user.toJson());
+      currentUser.value = user;
+    }
+  }
+
+  @override
   void onClose() {
     emailCtrl.dispose();
     passwordCtrl.dispose();

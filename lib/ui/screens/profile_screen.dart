@@ -27,17 +27,21 @@ class ProfileScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppConstants.padding),
-        child: Column(
-          children: [
-            _buildProfileHeader(),
-            const SizedBox(height: 25),
-            _buildProfileInfo(),
-            const SizedBox(height: 25),
-            _buildQuickActions(),
-            const SizedBox(height: 100),
-          ],
+      body: RefreshIndicator(
+        onRefresh: () => _auth.refreshProfile(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppConstants.padding),
+          child: Column(
+            children: [
+              _buildProfileHeader(),
+              const SizedBox(height: 25),
+              _buildProfileInfo(),
+              const SizedBox(height: 25),
+              _buildQuickActions(),
+              const SizedBox(height: 100),
+            ],
+          ),
         ),
       ),
     );
@@ -96,21 +100,39 @@ class ProfileScreen extends StatelessWidget {
         const SizedBox(height: 12),
         Obx(() {
           final user = _auth.currentUser.value;
-          if (user == null) return const SizedBox.shrink();
+          if (user == null) {
+            return _buildCard(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Center(
+                  child: Text(
+                    'Pull down to refresh profile',
+                    style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[500]),
+                  ),
+                ),
+              ),
+            );
+          }
+
+          // Check if we have any extra profile fields
+          final hasPhone = user.profile?.mobileNumber.isNotEmpty == true;
+          final hasGender = user.profile?.gender.isNotEmpty == true;
+          final hasDob = user.profile?.dateOfBirth.isNotEmpty == true;
 
           return _buildCard(
-            child: Column(
-              children: [
-                _buildInfoItem(Icons.person, 'Name', user.displayName),
-                _buildInfoItem(Icons.email, 'Email', user.email),
-                if (user.profile?.mobileNumber.isNotEmpty == true)
-                  _buildInfoItem(Icons.phone, 'Phone', user.profile!.mobileNumber),
-                if (user.profile?.gender.isNotEmpty == true)
-                  _buildInfoItem(Icons.wc, 'Gender', user.profile!.gender),
-                if (user.profile?.dateOfBirth.isNotEmpty == true)
-                  _buildInfoItem(Icons.cake, 'Date of Birth', user.profile!.dateOfBirth, isLast: true),
-              ],
-            ),
+            child: Column(children: [
+              _buildInfoItem(Icons.person, 'Name', user.displayName.isNotEmpty ? user.displayName : 'Not set'),
+              _buildInfoItem(Icons.email, 'Email', user.email.isNotEmpty ? user.email : 'Not set',
+                isLast: !hasPhone && !hasGender && !hasDob),
+              if (hasPhone)
+                _buildInfoItem(Icons.phone, 'Phone', user.profile!.mobileNumber,
+                  isLast: !hasGender && !hasDob),
+              if (hasGender)
+                _buildInfoItem(Icons.wc, 'Gender', user.profile!.gender,
+                  isLast: !hasDob),
+              if (hasDob)
+                _buildInfoItem(Icons.cake, 'Date of Birth', user.profile!.dateOfBirth, isLast: true),
+            ]),
           );
         }),
       ],

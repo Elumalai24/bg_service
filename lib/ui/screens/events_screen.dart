@@ -17,7 +17,10 @@ class EventsScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: Text('Events', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+        title: Text(
+          'Events',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+        ),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -45,7 +48,10 @@ class EventsScreen extends StatelessWidget {
         children: [
           const CircularProgressIndicator(color: AppConstants.primaryColor),
           const SizedBox(height: 16),
-          Text('Loading events...', style: GoogleFonts.poppins(color: Colors.grey[600])),
+          Text(
+            'Loading events...',
+            style: GoogleFonts.poppins(color: Colors.grey[600]),
+          ),
         ],
       ),
     );
@@ -60,7 +66,11 @@ class EventsScreen extends StatelessWidget {
           const SizedBox(height: 24),
           Text(
             'No events found',
-            style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.grey[600]),
+            style: GoogleFonts.poppins(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[600],
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -86,13 +96,15 @@ class EventsScreen extends StatelessWidget {
     return ListView.builder(
       padding: const EdgeInsets.all(AppConstants.padding),
       itemCount: controller.events.length,
-      itemBuilder: (context, index) => _EventCard(event: controller.events[index]),
+      itemBuilder: (context, index) =>
+          _EventCard(event: controller.events[index]),
     );
   }
 }
 
 class _EventCard extends StatelessWidget {
   final EventModel event;
+
   const _EventCard({required this.event});
 
   @override
@@ -103,7 +115,11 @@ class _EventCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppConstants.radius),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       child: Column(
@@ -133,9 +149,17 @@ class _EventCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              _buildBadge(event.status.toUpperCase(), _statusColor, Colors.white),
-              const SizedBox(width: 12),
-              _buildBadge(event.eventType.toUpperCase(), Colors.white.withValues(alpha: 0.8), _statusColor),
+              _buildBadge(
+                event.statusText.toUpperCase(),
+                _statusColor,
+                Colors.white,
+              ),
+              const SizedBox(width: 8),
+              _buildBadge(
+                event.eventTypeText.toUpperCase(),
+                Colors.white.withValues(alpha: 0.9),
+                _statusColor,
+              ),
             ],
           ),
           Row(
@@ -144,7 +168,11 @@ class _EventCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 '${event.eventDurationMinutes} min',
-                style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600]),
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[600],
+                ),
               ),
             ],
           ),
@@ -156,10 +184,17 @@ class _EventCard extends StatelessWidget {
   Widget _buildBadge(String text, Color bgColor, Color textColor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: bgColor, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Text(
         text,
-        style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.bold, color: textColor),
+        style: GoogleFonts.poppins(
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+          color: textColor,
+        ),
       ),
     );
   }
@@ -172,12 +207,22 @@ class _EventCard extends StatelessWidget {
         children: [
           Text(
             event.eventName,
-            style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: AppConstants.primaryColor),
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppConstants.primaryColor,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
-            event.eventDesc.isNotEmpty ? event.eventDesc : 'No description available',
-            style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[600], height: 1.4),
+            event.eventDesc.isNotEmpty
+                ? event.eventDesc
+                : 'No description available',
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              color: Colors.grey[600],
+              height: 1.4,
+            ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -193,15 +238,43 @@ class _EventCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: _buildDetailItem(Icons.flag, 'Goal', _formattedGoal, Colors.blue)),
-              Expanded(child: _buildDetailItem(Icons.schedule, 'Duration', _durationDays, Colors.orange)),
+              Expanded(
+                child: _buildDetailItem(
+                  Icons.flag,
+                  'Goal',
+                  _formattedGoal,
+                  Colors.blue,
+                ),
+              ),
+              Expanded(
+                child: _buildDetailItem(
+                  Icons.schedule,
+                  'Duration',
+                  _durationDays,
+                  Colors.orange,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(child: _buildDetailItem(Icons.calendar_today, 'Start', _formattedStartDate, AppConstants.primaryColor)),
-              Expanded(child: _buildDetailItem(Icons.event, 'End', _formattedEndDate, Colors.red)),
+              Expanded(
+                child: _buildDetailItem(
+                  Icons.calendar_today,
+                  'Start',
+                  _formattedStartDate,
+                  AppConstants.primaryColor,
+                ),
+              ),
+              Expanded(
+                child: _buildDetailItem(
+                  Icons.event,
+                  'End',
+                  _formattedEndDate,
+                  Colors.red,
+                ),
+              ),
             ],
           ),
           if (event.eventLocation.isNotEmpty) ...[
@@ -213,7 +286,10 @@ class _EventCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     event.eventLocation,
-                    style: GoogleFonts.poppins(fontSize: 13, color: Colors.grey[600]),
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: Colors.grey[600],
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -226,7 +302,12 @@ class _EventCard extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailItem(IconData icon, String label, String value, Color color) {
+  Widget _buildDetailItem(
+    IconData icon,
+    String label,
+    String value,
+    Color color,
+  ) {
     return Row(
       children: [
         Icon(icon, size: 16, color: color),
@@ -235,10 +316,20 @@ class _EventCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
+              Text(
+                label,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.grey[500],
+                ),
+              ),
               Text(
                 value,
-                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600, color: AppConstants.primaryColor),
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppConstants.primaryColor,
+                ),
               ),
             ],
           ),
@@ -253,13 +344,23 @@ class _EventCard extends StatelessWidget {
       child: SizedBox(
         width: double.infinity,
         child: OutlinedButton(
-          onPressed: () => Get.to(() => EventDetailsScreen(eventId: event.id, eventName: event.eventName)),
+          onPressed: () => Get.to(
+            () => EventDetailsScreen(
+              eventId: event.id,
+              eventName: event.eventName,
+            ),
+          ),
           style: OutlinedButton.styleFrom(
             foregroundColor: AppConstants.primaryColor,
             side: const BorderSide(color: AppConstants.primaryColor),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
-          child: Text('View Details', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+          child: Text(
+            'View Details',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+          ),
         ),
       ),
     );
@@ -267,11 +368,15 @@ class _EventCard extends StatelessWidget {
 
   // Computed properties
   Color get _statusColor {
+    // Handle both numeric codes and text values
     switch (event.status.toLowerCase()) {
+      case '1':
       case 'active':
         return AppConstants.primaryColor;
+      case '0':
       case 'upcoming':
         return Colors.blue;
+      case '2':
       case 'completed':
         return Colors.grey;
       default:
@@ -286,6 +391,9 @@ class _EventCard extends StatelessWidget {
     return '$days ${days == 1 ? 'day' : 'days'}';
   }
 
-  String get _formattedStartDate => DateFormat('MMM dd').format(event.eventFromDate);
-  String get _formattedEndDate => DateFormat('MMM dd').format(event.eventToDate);
+  String get _formattedStartDate =>
+      DateFormat('MMM dd').format(event.eventFromDate);
+
+  String get _formattedEndDate =>
+      DateFormat('MMM dd').format(event.eventToDate);
 }

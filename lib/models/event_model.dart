@@ -146,6 +146,40 @@ class EventModel {
   }
 
   // -----------------------
+  // Display helpers
+  // -----------------------
+
+  /// Get readable status text from numeric code
+  String get statusText {
+    switch (status) {
+      case '1':
+        return 'Active';
+      case '2':
+        return 'Completed';
+      case '0':
+        return 'Upcoming';
+      default:
+        return status.isNotEmpty ? status : 'Unknown';
+    }
+  }
+
+  /// Get readable event type text from numeric code
+  String get eventTypeText {
+    switch (eventType) {
+      case '1':
+        return 'Steps';
+      case '2':
+        return 'Walking';
+      case '3':
+        return 'Running';
+      case '4':
+        return 'Cycling';
+      default:
+        return eventType.isNotEmpty ? eventType : 'Challenge';
+    }
+  }
+
+  // -----------------------
   // Helpers & utils
   // -----------------------
 

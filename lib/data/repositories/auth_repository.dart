@@ -52,6 +52,15 @@ class AuthRepository {
 
   Future<ApiResponse<Map<String, dynamic>>> getProfile(String userId) => _api.get(
     '${AppConstants.profileEndpoint}/$userId',
-    fromJson: (data) => data as Map<String, dynamic>,
+    fromJson: (data) {
+      // API returns: { "success": true, "data": { "user_details": { ... } } }
+      if (data['success'] == true && data['data'] != null) {
+        final userData = data['data']['user_details'];
+        if (userData != null) {
+          return userData as Map<String, dynamic>;
+        }
+      }
+      return data as Map<String, dynamic>;
+    },
   );
 }

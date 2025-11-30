@@ -20,8 +20,8 @@ class AppConstants {
   static const String movesEndpoint = '/moves';
 
   // Legal URLs
-  static const String termsUrl = 'http://fitex.co.in/terms_and_conditions';
-  static const String privacyUrl = 'http://fitex.co.in/privacy_policy';
+  static const String termsUrl = 'https://fitex.co.in/terms_and_conditions';
+  static const String privacyUrl = 'https://fitex.co.in/privacy_policy';
 
   // Storage Keys
   static const String tokenKey = 'auth_token';
