@@ -38,10 +38,16 @@ class _HomeScreenState extends State<HomeScreen> {
     final userId = storage.read(AppConstants.userIdKey);
 
     if (token != null && userId != null) {
-      FlutterBackgroundService().invoke("update_auth", {
+      final service = FlutterBackgroundService();
+      
+      // Update auth info
+      service.invoke("update_auth", {
         "token": token,
         "user_id": userId.toString(),
       });
+      
+      // Trigger immediate sync on app open
+      service.invoke("app_open_sync");
     }
   }
 

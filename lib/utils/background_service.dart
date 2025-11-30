@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import 'package:get_storage/get_storage.dart';
 
 import 'db_helper.dart';
+import 'background_service_helpers.dart';
 import '../models/event_model.dart';
 import '../core/constants/app_constants.dart';
 
@@ -140,19 +141,19 @@ class BackgroundService {
     DateTime.parse(prefs.getString("program_start_date")!);
     DateTime programEnd = programStart.add(const Duration(days: 5));
 
-    int lastSystemTime =
-        prefs.getInt("last_system_time") ?? DateTime.now().millisecondsSinceEpoch;
+    // int lastSystemTime =
+    //     prefs.getInt("last_system_time") ?? DateTime.now().millisecondsSinceEpoch;
 
-    Future<void> checkTimeJump() async {
-      final nowMs = DateTime.now().millisecondsSinceEpoch;
-      final diff = (nowMs - lastSystemTime).abs();
-      if (diff > 60000) {
-        lastEventId = null;
-        eventStartSteps = null;
-      }
-      lastSystemTime = nowMs;
-      await prefs.setInt("last_system_time", nowMs);
-    }
+    // Future<void> checkTimeJump() async {
+    //   final nowMs = DateTime.now().millisecondsSinceEpoch;
+    //   final diff = (nowMs - lastSystemTime).abs();
+    //   if (diff > 60000) {
+    //     lastEventId = null;
+    //     eventStartSteps = null;
+    //   }
+    //   lastSystemTime = nowMs;
+    //   await prefs.setInt("last_system_time", nowMs);
+    // }
 
     // Active event from DB
     Future<EventModel?> getActiveEvent() async {
@@ -192,129 +193,6 @@ class BackgroundService {
       }
     }
 
-    // SYNC LOGIC
-    Future<void> syncEventData(EventModel event) async {
-      try {
-        print("🚀 Syncing data for event: ${event.eventName}");
-
-        // Get user ID from SharedPreferences (more reliable across isolates)
-        String? token = prefs.getString("bg_auth_token");
-        String? userIdStr = prefs.getString("bg_auth_user_id");
-
-        // Fallback to GetStorage if Prefs empty (in case it worked for some reason)
-        if (token == null || userIdStr == null) {
-          final storage = GetStorage();
-          userIdStr = storage.read(AppConstants.userIdKey)?.toString();
-          token = storage.read(AppConstants.tokenKey)?.toString();
-        }
-
-        if (userIdStr == null || token == null) {
-          print("❌ Cannot sync: Missing user ID or token. Make sure to login and open the app once.");
-          return;
-        }
-
-        final userId = int.tryParse(userIdStr.toString()) ?? 0;
-        
-        // Get stats for today
-        final today = DateTime.now();
-        final dateStr = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
-        
-        print("🔍 Sync Debug: UserID=$userIdStr ($userId), EventID=${event.id}, Date=$dateStr");
-
-        // Using raw query to get specific day stats
-        final db = await DBHelper.instance.getDailyStatsForEvent(userIdStr.toString(), event.id);
-        print("🔍 Sync Debug: Daily Stats Found: ${db.length} records");
-        if (db.isNotEmpty) {
-           print("🔍 Sync Debug: Record 0: ${db.first}");
-        } else {
-           // Debug: Check if ANY stats exist for this user
-           final allStats = await DBHelper.instance.getAllEventStats(userIdStr.toString());
-           print("🔍 Sync Debug: Total Event Stats for user: ${allStats.length} records");
-           if (allStats.isNotEmpty) print("🔍 Sync Debug: First stat: ${allStats.first}");
-        }
-
-        final dayStat = db.firstWhere(
-          (element) => element['date'] == dateStr, 
-          orElse: () => {},
-        );
-
-        if (dayStat.isEmpty || (dayStat['steps'] as int? ?? 0) == 0) {
-          print("⚠️ No steps to sync for this event today");
-          await showAlert("Sync Skipped", "No steps recorded for ${event.eventName}");
-          return;
-        }
-
-        final steps = dayStat['steps'] as int;
-        final distance = dayStat['distance'] as double;
-        final calories = dayStat['calories'] as double;
-        
-        // Convert distance from meters to kilometers for API
-        final distanceKm = distance / 1000;
-
-        print("📤 Posting moves: $steps steps, ${distanceKm.toStringAsFixed(2)} km, $calories kcal");
-
-        final dio = Dio();
-        dio.options.headers['Authorization'] = 'Bearer $token';
-        dio.options.headers['Accept'] = 'application/json';
-        dio.options.headers['Content-Type'] = 'application/json';
-
-        final response = await dio.post(
-          '${AppConstants.baseUrl}${AppConstants.movesEndpoint}',
-          data: {
-            "user_id": userId,
-            "event_id": event.id,
-            "activity_date": dateStr,
-            "steps_count": steps,
-            "distance_km": distanceKm,
-            "calories": calories
-          },
-        );
-
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          print("✅ Sync successful!");
-          await showAlert("Sync Success", "Uploaded steps for ${event.eventName}");
-          
-          await DBHelper.instance.logSync(
-            userId: userIdStr,
-            eventId: event.id,
-            date: dateStr,
-            status: "SUCCESS",
-            message: "Steps: $steps",
-          );
-        } else {
-          print("❌ Sync failed: ${response.statusCode} - ${response.statusMessage}");
-          await showAlert("Sync Failed", "Error ${response.statusCode}");
-          
-          await DBHelper.instance.logSync(
-            userId: userIdStr,
-            eventId: event.id,
-            date: dateStr,
-            status: "FAILED",
-            message: "Error: ${response.statusCode}",
-          );
-        }
-
-      } catch (e) {
-        print("❌ Error syncing event data: $e");
-        await showAlert("Sync Error", "Check logs");
-        
-        // We can't log to DB if DB is closed or error is severe, but try anyway
-        try {
-           // Need to get userIdStr again or pass it down
-           final storage = GetStorage();
-           final uId = storage.read(AppConstants.userIdKey)?.toString() ?? "unknown";
-           
-           await DBHelper.instance.logSync(
-            userId: uId,
-            eventId: event.id,
-            date: "unknown",
-            status: "ERROR",
-            message: e.toString(),
-          );
-        } catch (_) {}
-      }
-    }
-
     // LISTEN FOR AUTH UPDATE
     service.on("update_auth").listen((event) async {
       if (event != null) {
@@ -336,7 +214,7 @@ class BackgroundService {
     final pedStream = Pedometer.stepCountStream.listen((ev) async {
       final raw = ev.steps;
 
-      await checkTimeJump();
+      // await checkTimeJump();
 
       // TOTAL STEPS
       if (lastRaw == -1) lastRaw = raw;
@@ -362,8 +240,8 @@ class BackgroundService {
       // Check if event ended (active -> null)
       if (newEvent == null) {
         if (activeEvent != null) {
-           // Event just ended! Sync.
-           await syncEventData(activeEvent!);
+           // Event just ended! Queue sync.
+           await BackgroundSyncHelper.queueEventSync(event: activeEvent!, prefs: prefs);
         }
         activeEvent = null;
         eventStartSteps = null;
@@ -374,8 +252,8 @@ class BackgroundService {
       // SWITCH EVENT (active -> different active)
       if (lastEventId != newEvent.id) {
         if (activeEvent != null) {
-           // Previous event ended! Sync.
-           await syncEventData(activeEvent!);
+           // Previous event ended! Queue sync.
+           await BackgroundSyncHelper.queueEventSync(event: activeEvent!, prefs: prefs);
         }
         activeEvent = newEvent;
         eventStartSteps = null;
@@ -423,11 +301,25 @@ class BackgroundService {
       await updateNotif(raw, newEvent.eventName);
     });
 
+    // LISTEN FOR APP OPEN SYNC (Immediate sync for ongoing event)
+    service.on("app_open_sync").listen((event) async {
+      print("🚀 App opened! Checking for ongoing event sync...");
+      if (activeEvent != null) {
+        // Call immediate sync (Direct API call, no pending_syncs update)
+        await BackgroundSyncHelper.syncImmediate(
+          event: activeEvent!, 
+          prefs: prefs,
+        );
+      } else {
+        print("⚠️ No active event to sync on app open");
+      }
+    });
+
     // LISTEN FOR FORCE SYNC (FOR TESTING)
     service.on("force_sync").listen((event) async {
       print("🔄 Force sync requested from UI");
       if (activeEvent != null) {
-        await syncEventData(activeEvent!);
+        await BackgroundSyncHelper.queueEventSync(event: activeEvent!, prefs: prefs);
       } else {
         print("⚠️ Cannot force sync: No active event found");
         // Try to sync the last known event if available, or just log
@@ -439,31 +331,37 @@ class BackgroundService {
       }
     });
 
-    // PERIODIC UI UPDATE & EVENT CHECK
-    Timer.periodic(const Duration(seconds: 1), (timer) async {
-      await checkTimeJump();
+    // PERIODIC UI UPDATE & EVENT CHECK & SYNC PROCESSING
+    Timer.periodic(const Duration(seconds: 10), (timer) async {
+      // await checkTimeJump();
 
       final raw = prefs.getInt("last_raw") ?? 0;
       final evt = await getActiveEvent();
       
-      // Debug log every 10 seconds or on state change
-      if (timer.tick % 10 == 0) {
-         print("⏱️ Timer Tick: evt=${evt?.eventName}, activeEvent=${activeEvent?.eventName}");
+      // Debug log
+      print("⏱️ Timer Tick: evt=${evt?.eventName}, activeEvent=${activeEvent?.eventName}");
+
+      // Process pending syncs every 10 seconds
+      await BackgroundSyncHelper.processPendingSyncs(prefs: prefs, notifications: notifications);
+
+      // Cleanup old syncs once per hour (360 ticks * 10 seconds = 1 hour)
+      if (timer.tick % 360 == 0) {
+        await DBHelper.instance.cleanupOldSyncs();
       }
 
       // Check for event end via timer (in case no steps are taken but time expires)
       if (evt == null && activeEvent != null) {
-         // Event ended (time expired)! Sync.
+         // Event ended (time expired)! Queue sync.
          final eventToSync = activeEvent!;
          activeEvent = null; // Update state IMMEDIATELY to prevent re-entry
          lastEventId = null;
-         await syncEventData(eventToSync);
+         await BackgroundSyncHelper.queueEventSync(event: eventToSync, prefs: prefs);
       } else if (evt != null && activeEvent != null && evt.id != activeEvent!.id) {
-         // Event switched! Sync previous.
+         // Event switched! Queue sync for previous.
          final eventToSync = activeEvent!;
          activeEvent = evt; // Update state IMMEDIATELY to prevent re-entry
          lastEventId = evt.id;
-         await syncEventData(eventToSync);
+         await BackgroundSyncHelper.queueEventSync(event: eventToSync, prefs: prefs);
       } else if (evt != null && activeEvent == null) {
          // New event started
          activeEvent = evt;

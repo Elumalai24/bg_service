@@ -1,4 +1,5 @@
 // lib/db_helper.dart
+
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -11,7 +12,7 @@ class DBHelper {
   static final DBHelper instance = DBHelper._privateConstructor();
 
   static const _dbName = 'event_tracker.db';
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
 
   Database? _db;
 
@@ -30,6 +31,7 @@ class DBHelper {
       path,
       version: _dbVersion,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
@@ -102,6 +104,42 @@ class DBHelper {
         timestamp TEXT NOT NULL
       )
     ''');
+
+    // Pending Syncs (for delayed API calls to prevent thundering herd)
+    await db.execute('''
+      CREATE TABLE pending_syncs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT NOT NULL,
+        eventId INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        scheduledTime TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        createdAt TEXT NOT NULL,
+        UNIQUE(userId, eventId, date)
+      )
+    ''');
+  }
+
+  /// ----------------------------------------------------------------------
+  /// UPGRADE DB
+  /// ----------------------------------------------------------------------
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add pending_syncs table for version 2
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS pending_syncs(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId TEXT NOT NULL,
+          eventId INTEGER NOT NULL,
+          date TEXT NOT NULL,
+          scheduledTime TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'PENDING',
+          createdAt TEXT NOT NULL,
+          UNIQUE(userId, eventId, date)
+        )
+      ''');
+      print("✔ Database upgraded to version $newVersion");
+    }
   }
 
   Database _ensureDb() {
@@ -493,5 +531,101 @@ class DBHelper {
   Future<List<Map<String, dynamic>>> getSyncHistory() async {
     final db = _ensureDb();
     return await db.query("sync_history", orderBy: "timestamp DESC", limit: 50);
+  }
+
+  /// ----------------------------------------------------------------------
+  /// PENDING SYNCS (Random Delay to Prevent Thundering Herd)
+  /// ----------------------------------------------------------------------
+  
+  /// Add a pending sync with random delay (0-30 minutes)
+  Future<void> addPendingSync({
+    required String userId,
+    required int eventId,
+    required String date,
+  }) async {
+    final db = _ensureDb();
+    
+    // Generate random delay between 0-30 minutes (in seconds)
+    final random = DateTime.now().millisecondsSinceEpoch % 1800; // 0-1799 seconds (30 minutes)
+    final scheduledTime = DateTime.now().add(Duration(seconds: random));
+    
+    print("📅 Scheduling sync for event $eventId in ${(random / 60).toStringAsFixed(1)} minutes (at ${scheduledTime.toIso8601String()})");
+    
+    await db.insert(
+      "pending_syncs",
+      {
+        "userId": userId,
+        "eventId": eventId,
+        "date": date,
+        "scheduledTime": scheduledTime.toIso8601String(),
+        "status": "PENDING",
+        "createdAt": DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Check if a pending/completed sync exists for this event and date
+  Future<bool> hasPendingSync(String userId, int eventId, String date) async {
+    final db = _ensureDb();
+    final result = await db.query(
+      "pending_syncs",
+      where: "userId = ? AND eventId = ? AND date = ?",
+      whereArgs: [userId, eventId, date],
+    );
+    return result.isNotEmpty;
+  }
+
+  /// Get all pending syncs that are due (scheduledTime <= now)
+  Future<List<Map<String, dynamic>>> getDuePendingSyncs() async {
+    final db = _ensureDb();
+    final now = DateTime.now().toIso8601String();
+    
+    return await db.query(
+      "pending_syncs",
+      where: "status = ? AND scheduledTime <= ?",
+      whereArgs: ["PENDING", now],
+      orderBy: "scheduledTime ASC",
+    );
+  }
+
+  /// Mark a pending sync as completed
+  Future<void> markSyncCompleted(int syncId) async {
+    final db = _ensureDb();
+    await db.update(
+      "pending_syncs",
+      {"status": "COMPLETED"},
+      where: "id = ?",
+      whereArgs: [syncId],
+    );
+  }
+
+  /// Mark a pending sync as failed
+  Future<void> markSyncFailed(int syncId) async {
+    final db = _ensureDb();
+    await db.update(
+      "pending_syncs",
+      {"status": "FAILED"},
+      where: "id = ?",
+      whereArgs: [syncId],
+    );
+  }
+
+  /// Get all pending syncs (for debugging)
+  Future<List<Map<String, dynamic>>> getAllPendingSyncs() async {
+    final db = _ensureDb();
+    return await db.query("pending_syncs", orderBy: "scheduledTime ASC");
+  }
+
+  /// Clean up old completed/failed syncs (older than 7 days)
+  Future<void> cleanupOldSyncs() async {
+    final db = _ensureDb();
+    final cutoff = DateTime.now().subtract(const Duration(days: 7)).toIso8601String();
+    
+    await db.delete(
+      "pending_syncs",
+      where: "status IN (?, ?) AND createdAt < ?",
+      whereArgs: ["COMPLETED", "FAILED", cutoff],
+    );
   }
 }
