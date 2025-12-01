@@ -8,7 +8,6 @@ import '../../controllers/auth_controller.dart';
 import '../../controllers/events_controller.dart';
 import 'events_screen.dart';
 import 'profile_screen.dart';
-import 'event_details_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
