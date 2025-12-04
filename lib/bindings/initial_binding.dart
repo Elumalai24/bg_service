@@ -1,5 +1,6 @@
 import 'package:get/get.dart';
 import '../core/services/api_service.dart';
+import '../core/services/app_update_service.dart';
 import '../data/repositories/auth_repository.dart';
 import '../data/repositories/events_repository.dart';
 import '../controllers/auth_controller.dart';
@@ -10,6 +11,7 @@ class InitialBinding extends Bindings {
   void dependencies() {
     // Services
     Get.put(ApiService(), permanent: true);
+    Get.put(AppUpdateService(), permanent: true);
 
     // Repositories
     Get.lazyPut(() => AuthRepository(Get.find<ApiService>()), fenix: true);
