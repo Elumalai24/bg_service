@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/services/app_update_service.dart';
 import '../../routes/app_routes.dart';
 import '../widgets/logo_widget.dart';
 
@@ -17,12 +19,33 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
+    _initAndNavigate();
+  }
+
+  Future<void> _initAndNavigate() async {
+    await Future.delayed(const Duration(seconds: 2));
+
+    // Check for force update (Android only)
+    if (Platform.isAndroid) {
+      try {
+        final updateService = Get.find<AppUpdateService>();
+        final forceUpdateRequired = await updateService.checkForForceUpdate();
+
+        if (forceUpdateRequired) {
+          // App is blocked, don't navigate
+          debugPrint('Force update required - blocking navigation');
+          return;
+        }
+      } catch (e) {
+        debugPrint('Error checking for updates: $e');
+      }
+    }
+
+    // Navigate based on auth status
     _checkAuthAndNavigate();
   }
 
-  Future<void> _checkAuthAndNavigate() async {
-    await Future.delayed(const Duration(seconds: 2));
-
+  void _checkAuthAndNavigate() {
     final storage = GetStorage();
     final token = storage.read(AppConstants.tokenKey);
     final userData = storage.read(AppConstants.userKey);
