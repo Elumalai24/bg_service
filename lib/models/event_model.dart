@@ -152,13 +152,14 @@ class EventModel {
   /// Get status based on current date/time
   String get statusText {
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final startDate = DateTime(eventFromDate.year, eventFromDate.month, eventFromDate.day);
-    final endDate = DateTime(eventToDate.year, eventToDate.month, eventToDate.day);
 
-    if (today.isBefore(startDate)) {
+    // Combine date with time for accurate comparison
+    final startDateTime = slotStartDateTimeForDate(eventFromDate);
+    final endDateTime = slotEndDateTimeForDate(eventToDate);
+
+    if (now.isBefore(startDateTime)) {
       return 'Upcoming';
-    } else if (today.isAfter(endDate)) {
+    } else if (now.isAfter(endDateTime)) {
       return 'Completed';
     } else {
       return 'Active';
